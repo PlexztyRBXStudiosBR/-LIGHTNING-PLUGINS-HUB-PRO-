@@ -1,0 +1,1304 @@
+-- LIGHTNING PLUGINS HUB PRO v1.0
+-- Para Studio Lite
+-- Compativel com Executores
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+local Camera = workspace.CurrentCamera
+
+if PlayerGui:FindFirstChild("PluginHubPro") then
+    PlayerGui:FindFirstChild("PluginHubPro"):Destroy()
+end
+
+local Theme = {
+    Primary = Color3.fromRGB(18, 18, 22),
+    Secondary = Color3.fromRGB(28, 28, 35),
+    Tertiary = Color3.fromRGB(38, 38, 48),
+    Accent = Color3.fromRGB(130, 80, 245),
+    AccentLight = Color3.fromRGB(160, 120, 255),
+    Gold = Color3.fromRGB(255, 195, 70),
+    Text = Color3.fromRGB(255, 255, 255),
+    TextDim = Color3.fromRGB(160, 160, 175),
+    Success = Color3.fromRGB(80, 200, 120),
+    Error = Color3.fromRGB(240, 80, 80),
+    Warning = Color3.fromRGB(255, 180, 50)
+}
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "PluginHubPro"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = PlayerGui
+
+local function CreateCorner(parent, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 8)
+    corner.Parent = parent
+    return corner
+end
+
+local function CreateStroke(parent, color, thickness)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = color or Theme.Accent
+    stroke.Thickness = thickness or 1
+    stroke.Transparency = 0.5
+    stroke.Parent = parent
+    return stroke
+end
+
+local function IsTouchOnUI(pos)
+    local success, guis = pcall(function()
+        return PlayerGui:GetGuiObjectsAtPosition(pos.X, pos.Y)
+    end)
+    if not success then return false end
+    for _, gui in ipairs(guis) do
+        if gui:IsDescendantOf(ScreenGui) then
+            return true
+        end
+    end
+    return false
+end
+
+local function RaycastWorld(screenPos)
+    local viewportOffset = Vector2.new(0, 0)
+    pcall(function() viewportOffset = GuiService:GetGuiInset() end)
+    local success, ray = pcall(function()
+        return Camera:ViewportPointToRay(screenPos.X, screenPos.Y + viewportOffset.Y)
+    end)
+    if not success then return nil, false end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {Player.Character}
+    local result = workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+    return result and result.Position or nil, result ~= nil
+end
+
+local PluginsBtn = Instance.new("TextButton")
+PluginsBtn.Name = "PluginsBtn"
+PluginsBtn.BackgroundColor3 = Theme.Accent
+PluginsBtn.Position = UDim2.new(1, -115, 0, 10)
+PluginsBtn.Size = UDim2.new(0, 105, 0, 38)
+PluginsBtn.Font = Enum.Font.GothamBold
+PluginsBtn.Text = "[+] Plugins"
+PluginsBtn.TextColor3 = Theme.Text
+PluginsBtn.TextSize = 14
+PluginsBtn.ZIndex = 50
+PluginsBtn.Parent = ScreenGui
+CreateCorner(PluginsBtn, 19)
+CreateStroke(PluginsBtn, Theme.AccentLight, 2)
+
+local PluginsMenu = Instance.new("Frame")
+PluginsMenu.Name = "PluginsMenu"
+PluginsMenu.BackgroundColor3 = Theme.Primary
+PluginsMenu.Position = UDim2.new(1, -265, 0, 54)
+PluginsMenu.Size = UDim2.new(0, 255, 0, 230)
+PluginsMenu.Visible = false
+PluginsMenu.ZIndex = 51
+PluginsMenu.Parent = ScreenGui
+CreateCorner(PluginsMenu, 12)
+CreateStroke(PluginsMenu, Theme.Accent, 2)
+
+local PluginsMenuTitle = Instance.new("TextLabel")
+PluginsMenuTitle.BackgroundColor3 = Theme.Secondary
+PluginsMenuTitle.Size = UDim2.new(1, 0, 0, 38)
+PluginsMenuTitle.Font = Enum.Font.GothamBold
+PluginsMenuTitle.Text = "LIGHTNING PLUGINS HUB PRO"
+PluginsMenuTitle.TextColor3 = Theme.Accent
+PluginsMenuTitle.TextSize = 13
+PluginsMenuTitle.ZIndex = 52
+PluginsMenuTitle.Parent = PluginsMenu
+CreateCorner(PluginsMenuTitle, 12)
+
+local PluginsList = {
+    {Name = "Archimedes", Icon = "[A]", Desc = "Formas curvas e arcos", Color = Color3.fromRGB(255, 100, 100)},
+    {Name = "LightingTools", Icon = "[L]", Desc = "Luzes, sol e ambiente", Color = Color3.fromRGB(255, 200, 50)},
+    {Name = "CodeEditor", Icon = "[C]", Desc = "Editor de codigo Lua", Color = Color3.fromRGB(100, 180, 255)},
+    {Name = "TreeGenerator", Icon = "[T]", Desc = "Gerador de arvores", Color = Color3.fromRGB(100, 220, 100)}
+}
+
+local pluginBtns = {}
+
+for i, plugin in ipairs(PluginsList) do
+    local btn = Instance.new("TextButton")
+    btn.Name = plugin.Name
+    btn.BackgroundColor3 = Theme.Secondary
+    btn.Position = UDim2.new(0, 8, 0, 38 + (i-1) * 47)
+    btn.Size = UDim2.new(1, -16, 0, 43)
+    btn.Font = Enum.Font.GothamMedium
+    btn.Text = ""
+    btn.ZIndex = 52
+    btn.Parent = PluginsMenu
+    CreateCorner(btn, 8)
+    
+    local icon = Instance.new("TextLabel")
+    icon.BackgroundColor3 = plugin.Color
+    icon.Position = UDim2.new(0, 6, 0.5, -16)
+    icon.Size = UDim2.new(0, 32, 0, 32)
+    icon.Font = Enum.Font.GothamBold
+    icon.Text = plugin.Icon
+    icon.TextColor3 = Theme.Text
+    icon.TextSize = 11
+    icon.ZIndex = 53
+    icon.Parent = btn
+    CreateCorner(icon, 8)
+    
+    local name = Instance.new("TextLabel")
+    name.BackgroundTransparency = 1
+    name.Position = UDim2.new(0, 45, 0, 4)
+    name.Size = UDim2.new(1, -55, 0, 18)
+    name.Font = Enum.Font.GothamBold
+    name.Text = plugin.Name
+    name.TextColor3 = Theme.Text
+    name.TextSize = 12
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.ZIndex = 53
+    name.Parent = btn
+    
+    local desc = Instance.new("TextLabel")
+    desc.BackgroundTransparency = 1
+    desc.Position = UDim2.new(0, 45, 0, 22)
+    desc.Size = UDim2.new(1, -55, 0, 16)
+    desc.Font = Enum.Font.Gotham
+    desc.Text = plugin.Desc
+    desc.TextColor3 = Theme.TextDim
+    desc.TextSize = 10
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+    desc.ZIndex = 53
+    desc.Parent = btn
+    
+    pluginBtns[plugin.Name] = btn
+end
+
+local menuOpen = false
+PluginsBtn.MouseButton1Click:Connect(function()
+    menuOpen = not menuOpen
+    PluginsMenu.Visible = menuOpen
+    PluginsBtn.Text = menuOpen and "[-] Plugins" or "[+] Plugins"
+end)
+
+-- ============================================
+-- ARCHIMEDES PLUGIN
+-- ============================================
+
+local ArchFrame = Instance.new("Frame")
+ArchFrame.Name = "Archimedes"
+ArchFrame.BackgroundColor3 = Theme.Primary
+ArchFrame.Position = UDim2.new(0.5, -145, 0.5, -185)
+ArchFrame.Size = UDim2.new(0, 290, 0, 370)
+ArchFrame.Visible = false
+ArchFrame.ZIndex = 100
+ArchFrame.Parent = ScreenGui
+CreateCorner(ArchFrame, 12)
+CreateStroke(ArchFrame, Color3.fromRGB(255, 100, 100), 2)
+
+local ArchHeader = Instance.new("Frame")
+ArchHeader.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+ArchHeader.Size = UDim2.new(1, 0, 0, 42)
+ArchHeader.ZIndex = 101
+ArchHeader.Parent = ArchFrame
+CreateCorner(ArchHeader, 12)
+
+local ArchTitle = Instance.new("TextLabel")
+ArchTitle.BackgroundTransparency = 1
+ArchTitle.Position = UDim2.new(0, 14, 0, 0)
+ArchTitle.Size = UDim2.new(1, -55, 1, 0)
+ArchTitle.Font = Enum.Font.GothamBold
+ArchTitle.Text = "Archimedes - Curvas"
+ArchTitle.TextColor3 = Theme.Text
+ArchTitle.TextSize = 14
+ArchTitle.TextXAlignment = Enum.TextXAlignment.Left
+ArchTitle.ZIndex = 102
+ArchTitle.Parent = ArchHeader
+
+local ArchClose = Instance.new("TextButton")
+ArchClose.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+ArchClose.Position = UDim2.new(1, -38, 0.5, -13)
+ArchClose.Size = UDim2.new(0, 26, 0, 26)
+ArchClose.Font = Enum.Font.GothamBold
+ArchClose.Text = "X"
+ArchClose.TextColor3 = Theme.Text
+ArchClose.TextSize = 14
+ArchClose.ZIndex = 102
+ArchClose.Parent = ArchHeader
+CreateCorner(ArchClose, 6)
+
+local ArchContent = Instance.new("ScrollingFrame")
+ArchContent.BackgroundTransparency = 1
+ArchContent.Position = UDim2.new(0, 0, 0, 47)
+ArchContent.Size = UDim2.new(1, 0, 1, -52)
+ArchContent.CanvasSize = UDim2.new(0, 0, 0, 380)
+ArchContent.ScrollBarThickness = 4
+ArchContent.ScrollBarImageColor3 = Theme.Accent
+ArchContent.ZIndex = 101
+ArchContent.Parent = ArchFrame
+
+local ArchConfig = {
+    Shape = "Arc",
+    Segments = 12,
+    Radius = 20,
+    Angle = 180,
+    Height = 0,
+    PartSize = Vector3.new(4, 1, 2),
+    Placing = false
+}
+
+local ShapeSection = Instance.new("Frame")
+ShapeSection.BackgroundColor3 = Theme.Secondary
+ShapeSection.Position = UDim2.new(0, 8, 0, 5)
+ShapeSection.Size = UDim2.new(1, -16, 0, 72)
+ShapeSection.ZIndex = 102
+ShapeSection.Parent = ArchContent
+CreateCorner(ShapeSection, 8)
+
+local ShapeLabel = Instance.new("TextLabel")
+ShapeLabel.BackgroundTransparency = 1
+ShapeLabel.Position = UDim2.new(0, 10, 0, 6)
+ShapeLabel.Size = UDim2.new(1, -20, 0, 18)
+ShapeLabel.Font = Enum.Font.GothamBold
+ShapeLabel.Text = "FORMA"
+ShapeLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+ShapeLabel.TextSize = 11
+ShapeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ShapeLabel.ZIndex = 103
+ShapeLabel.Parent = ShapeSection
+
+local ShapeGrid = Instance.new("Frame")
+ShapeGrid.BackgroundTransparency = 1
+ShapeGrid.Position = UDim2.new(0, 6, 0, 28)
+ShapeGrid.Size = UDim2.new(1, -12, 0, 38)
+ShapeGrid.ZIndex = 103
+ShapeGrid.Parent = ShapeSection
+
+local ShapeLayout = Instance.new("UIListLayout")
+ShapeLayout.FillDirection = Enum.FillDirection.Horizontal
+ShapeLayout.Padding = UDim.new(0, 6)
+ShapeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+ShapeLayout.Parent = ShapeGrid
+
+local Shapes = {"Arc", "Spiral", "Circle", "Helix"}
+local ShapeBtns = {}
+
+for _, shape in ipairs(Shapes) do
+    local btn = Instance.new("TextButton")
+    btn.BackgroundColor3 = shape == "Arc" and Color3.fromRGB(255, 100, 100) or Theme.Tertiary
+    btn.Size = UDim2.new(0, 62, 0, 32)
+    btn.Font = Enum.Font.GothamMedium
+    btn.Text = shape
+    btn.TextColor3 = shape == "Arc" and Theme.Primary or Theme.Text
+    btn.TextSize = 11
+    btn.ZIndex = 104
+    btn.Parent = ShapeGrid
+    CreateCorner(btn, 6)
+    ShapeBtns[shape] = btn
+    
+    btn.MouseButton1Click:Connect(function()
+        ArchConfig.Shape = shape
+        for n, b in pairs(ShapeBtns) do
+            b.BackgroundColor3 = n == shape and Color3.fromRGB(255, 100, 100) or Theme.Tertiary
+            b.TextColor3 = n == shape and Theme.Primary or Theme.Text
+        end
+    end)
+end
+
+local ParamsSection = Instance.new("Frame")
+ParamsSection.BackgroundColor3 = Theme.Secondary
+ParamsSection.Position = UDim2.new(0, 8, 0, 82)
+ParamsSection.Size = UDim2.new(1, -16, 0, 145)
+ParamsSection.ZIndex = 102
+ParamsSection.Parent = ArchContent
+CreateCorner(ParamsSection, 8)
+
+local ParamsLabel = Instance.new("TextLabel")
+ParamsLabel.BackgroundTransparency = 1
+ParamsLabel.Position = UDim2.new(0, 10, 0, 6)
+ParamsLabel.Size = UDim2.new(1, -20, 0, 18)
+ParamsLabel.Font = Enum.Font.GothamBold
+ParamsLabel.Text = "PARAMETROS"
+ParamsLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+ParamsLabel.TextSize = 11
+ParamsLabel.TextXAlignment = Enum.TextXAlignment.Left
+ParamsLabel.ZIndex = 103
+ParamsLabel.Parent = ParamsSection
+
+local function MakeSlider(parent, yPos, labelText, minVal, maxVal, defaultVal, callback)
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Position = UDim2.new(0, 10, 0, yPos)
+    lbl.Size = UDim2.new(1, -20, 0, 14)
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.Text = labelText .. ": " .. defaultVal
+    lbl.TextColor3 = Theme.TextDim
+    lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 103
+    lbl.Parent = parent
+    
+    local bg = Instance.new("Frame")
+    bg.BackgroundColor3 = Theme.Tertiary
+    bg.Position = UDim2.new(0, 10, 0, yPos + 16)
+    bg.Size = UDim2.new(1, -20, 0, 14)
+    bg.ZIndex = 103
+    bg.Parent = parent
+    CreateCorner(bg, 7)
+    
+    local fill = Instance.new("Frame")
+    fill.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    fill.Size = UDim2.new((defaultVal - minVal) / (maxVal - minVal), 0, 1, 0)
+    fill.ZIndex = 104
+    fill.Parent = bg
+    CreateCorner(fill, 7)
+    
+    local drag = false
+    bg.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+            drag = true
+        end
+    end)
+    bg.InputEnded:Connect(function() drag = false end)
+    
+    UserInputService.InputChanged:Connect(function(i)
+        if drag and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+            local rel = math.clamp((i.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+            fill.Size = UDim2.new(rel, 0, 1, 0)
+            local val = minVal + (maxVal - minVal) * rel
+            lbl.Text = labelText .. ": " .. math.floor(val)
+            callback(val)
+        end
+    end)
+end
+
+MakeSlider(ParamsSection, 28, "Segmentos", 3, 36, 12, function(v) ArchConfig.Segments = math.floor(v) end)
+MakeSlider(ParamsSection, 62, "Raio", 5, 100, 20, function(v) ArchConfig.Radius = v end)
+MakeSlider(ParamsSection, 96, "Angulo", 30, 360, 180, function(v) ArchConfig.Angle = v end)
+MakeSlider(ParamsSection, 130, "Altura", 0, 50, 0, function(v) ArchConfig.Height = v end)
+
+local ArchBtn = Instance.new("TextButton")
+ArchBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+ArchBtn.Position = UDim2.new(0, 8, 0, 235)
+ArchBtn.Size = UDim2.new(1, -16, 0, 42)
+ArchBtn.Font = Enum.Font.GothamBold
+ArchBtn.Text = "POSICIONAR NO MUNDO"
+ArchBtn.TextColor3 = Theme.Text
+ArchBtn.TextSize = 13
+ArchBtn.ZIndex = 103
+ArchBtn.Parent = ArchContent
+CreateCorner(ArchBtn, 10)
+
+local function BuildArchShape(pos)
+    local shape = ArchConfig.Shape
+    local segs = ArchConfig.Segments
+    local rad = ArchConfig.Radius
+    local ang = math.rad(ArchConfig.Angle)
+    local hgt = ArchConfig.Height
+    local pSize = ArchConfig.PartSize
+    
+    local folder = Instance.new("Folder")
+    folder.Name = "Arch_" .. shape
+    folder.Parent = workspace
+    
+    for i = 0, segs - 1 do
+        local part = Instance.new("Part")
+        part.Size = pSize
+        part.Material = Enum.Material.SmoothPlastic
+        part.Color = Color3.fromRGB(100, 150, 255)
+        part.Anchored = true
+        part.Parent = folder
+        
+        local t = i / math.max(1, segs - 1)
+        local curAng = ang * t
+        local x, y, z
+        
+        if shape == "Arc" then
+            x = math.cos(curAng) * rad
+            y = hgt * t
+            z = math.sin(curAng) * rad
+        elseif shape == "Spiral" then
+            local sRad = rad * (1 - t * 0.5)
+            x = math.cos(curAng * 2) * sRad
+            y = hgt * t
+            z = math.sin(curAng * 2) * sRad
+        elseif shape == "Circle" then
+            curAng = math.pi * 2 * t
+            x = math.cos(curAng) * rad
+            y = 0
+            z = math.sin(curAng) * rad
+        elseif shape == "Helix" then
+            curAng = math.pi * 4 * t
+            x = math.cos(curAng) * rad
+            y = hgt * t
+            z = math.sin(curAng) * rad
+        end
+        
+        part.Position = pos + Vector3.new(x, y, z)
+        part.CFrame = CFrame.new(part.Position) * CFrame.Angles(0, curAng, 0)
+    end
+end
+
+ArchBtn.MouseButton1Click:Connect(function()
+    ArchConfig.Placing = not ArchConfig.Placing
+    ArchBtn.Text = ArchConfig.Placing and "CANCELAR" or "POSICIONAR NO MUNDO"
+    ArchBtn.BackgroundColor3 = ArchConfig.Placing and Theme.Warning or Color3.fromRGB(255, 100, 100)
+end)
+
+ArchClose.MouseButton1Click:Connect(function()
+    ArchFrame.Visible = false
+    ArchConfig.Placing = false
+    ArchBtn.Text = "POSICIONAR NO MUNDO"
+    ArchBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+end)
+
+pluginBtns["Archimedes"].MouseButton1Click:Connect(function()
+    ArchFrame.Visible = true
+    PluginsMenu.Visible = false
+    menuOpen = false
+    PluginsBtn.Text = "[+] Plugins"
+end)
+
+-- ============================================
+-- LIGHTING TOOLS PLUGIN
+-- ============================================
+
+local LightFrame = Instance.new("Frame")
+LightFrame.Name = "LightingTools"
+LightFrame.BackgroundColor3 = Theme.Primary
+LightFrame.Position = UDim2.new(0.5, -145, 0.5, -175)
+LightFrame.Size = UDim2.new(0, 290, 0, 350)
+LightFrame.Visible = false
+LightFrame.ZIndex = 100
+LightFrame.Parent = ScreenGui
+CreateCorner(LightFrame, 12)
+CreateStroke(LightFrame, Color3.fromRGB(255, 200, 50), 2)
+
+local LightHeader = Instance.new("Frame")
+LightHeader.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
+LightHeader.Size = UDim2.new(1, 0, 0, 42)
+LightHeader.ZIndex = 101
+LightHeader.Parent = LightFrame
+CreateCorner(LightHeader, 12)
+
+local LightTitle = Instance.new("TextLabel")
+LightTitle.BackgroundTransparency = 1
+LightTitle.Position = UDim2.new(0, 14, 0, 0)
+LightTitle.Size = UDim2.new(1, -55, 1, 0)
+LightTitle.Font = Enum.Font.GothamBold
+LightTitle.Text = "Lighting Tools"
+LightTitle.TextColor3 = Theme.Primary
+LightTitle.TextSize = 14
+LightTitle.TextXAlignment = Enum.TextXAlignment.Left
+LightTitle.ZIndex = 102
+LightTitle.Parent = LightHeader
+
+local LightClose = Instance.new("TextButton")
+LightClose.BackgroundColor3 = Color3.fromRGB(200, 150, 30)
+LightClose.Position = UDim2.new(1, -38, 0.5, -13)
+LightClose.Size = UDim2.new(0, 26, 0, 26)
+LightClose.Font = Enum.Font.GothamBold
+LightClose.Text = "X"
+LightClose.TextColor3 = Theme.Text
+LightClose.TextSize = 14
+LightClose.ZIndex = 102
+LightClose.Parent = LightHeader
+CreateCorner(LightClose, 6)
+
+local LightContent = Instance.new("ScrollingFrame")
+LightContent.BackgroundTransparency = 1
+LightContent.Position = UDim2.new(0, 0, 0, 47)
+LightContent.Size = UDim2.new(1, 0, 1, -52)
+LightContent.CanvasSize = UDim2.new(0, 0, 0, 350)
+LightContent.ScrollBarThickness = 4
+LightContent.ScrollBarImageColor3 = Theme.Accent
+LightContent.ZIndex = 101
+LightContent.Parent = LightFrame
+
+local TimeSection = Instance.new("Frame")
+TimeSection.BackgroundColor3 = Theme.Secondary
+TimeSection.Position = UDim2.new(0, 8, 0, 5)
+TimeSection.Size = UDim2.new(1, -16, 0, 115)
+TimeSection.ZIndex = 102
+TimeSection.Parent = LightContent
+CreateCorner(TimeSection, 8)
+
+local TimeLabel = Instance.new("TextLabel")
+TimeLabel.BackgroundTransparency = 1
+TimeLabel.Position = UDim2.new(0, 10, 0, 6)
+TimeLabel.Size = UDim2.new(1, -20, 0, 18)
+TimeLabel.Font = Enum.Font.GothamBold
+TimeLabel.Text = "HORARIO DO DIA"
+TimeLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+TimeLabel.TextSize = 11
+TimeLabel.TextXAlignment = Enum.TextXAlignment.Left
+TimeLabel.ZIndex = 103
+TimeLabel.Parent = TimeSection
+
+local TimeDisplay = Instance.new("TextLabel")
+TimeDisplay.BackgroundTransparency = 1
+TimeDisplay.Position = UDim2.new(0, 10, 0, 26)
+TimeDisplay.Size = UDim2.new(1, -20, 0, 22)
+TimeDisplay.Font = Enum.Font.GothamBold
+TimeDisplay.Text = "12:00"
+TimeDisplay.TextColor3 = Theme.Text
+TimeDisplay.TextSize = 18
+TimeDisplay.ZIndex = 103
+TimeDisplay.Parent = TimeSection
+
+local TimeBg = Instance.new("Frame")
+TimeBg.BackgroundColor3 = Theme.Tertiary
+TimeBg.Position = UDim2.new(0, 10, 0, 52)
+TimeBg.Size = UDim2.new(1, -20, 0, 22)
+TimeBg.ZIndex = 103
+TimeBg.Parent = TimeSection
+CreateCorner(TimeBg, 11)
+
+local SunIcon = Instance.new("TextLabel")
+SunIcon.BackgroundColor3 = Color3.fromRGB(255, 220, 100)
+SunIcon.Position = UDim2.new(0.5, -11, 0.5, -11)
+SunIcon.Size = UDim2.new(0, 22, 0, 22)
+SunIcon.Font = Enum.Font.GothamBold
+SunIcon.Text = "O"
+SunIcon.TextSize = 12
+SunIcon.ZIndex = 105
+SunIcon.Parent = TimeBg
+CreateCorner(SunIcon, 11)
+
+local QuickFrame = Instance.new("Frame")
+QuickFrame.BackgroundTransparency = 1
+QuickFrame.Position = UDim2.new(0, 10, 0, 80)
+QuickFrame.Size = UDim2.new(1, -20, 0, 30)
+QuickFrame.ZIndex = 103
+QuickFrame.Parent = TimeSection
+
+local QuickLayout = Instance.new("UIListLayout")
+QuickLayout.FillDirection = Enum.FillDirection.Horizontal
+QuickLayout.Padding = UDim.new(0, 6)
+QuickLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+QuickLayout.Parent = QuickFrame
+
+local QuickTimes = {{"Manha", "06:30"}, {"Dia", "12:00"}, {"Tarde", "18:00"}, {"Noite", "00:00"}}
+
+for _, qt in ipairs(QuickTimes) do
+    local qBtn = Instance.new("TextButton")
+    qBtn.BackgroundColor3 = Theme.Tertiary
+    qBtn.Size = UDim2.new(0, 58, 0, 26)
+    qBtn.Font = Enum.Font.GothamMedium
+    qBtn.Text = qt[1]
+    qBtn.TextColor3 = Theme.Text
+    qBtn.TextSize = 10
+    qBtn.ZIndex = 104
+    qBtn.Parent = QuickFrame
+    CreateCorner(qBtn, 6)
+    
+    qBtn.MouseButton1Click:Connect(function()
+        Lighting.TimeOfDay = qt[2]
+        TimeDisplay.Text = qt[2]
+    end)
+end
+
+local dragSun = false
+TimeBg.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragSun = true
+    end
+end)
+TimeBg.InputEnded:Connect(function() dragSun = false end)
+
+UserInputService.InputChanged:Connect(function(i)
+    if dragSun and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+        local rel = math.clamp((i.Position.X - TimeBg.AbsolutePosition.X) / TimeBg.AbsoluteSize.X, 0, 1)
+        SunIcon.Position = UDim2.new(rel, -11, 0.5, -11)
+        local hrs = math.floor(rel * 24)
+        local mins = math.floor((rel * 24 - hrs) * 60)
+        local tStr = string.format("%02d:%02d", hrs, mins)
+        Lighting.TimeOfDay = tStr
+        TimeDisplay.Text = tStr
+        SunIcon.Text = (hrs >= 6 and hrs < 18) and "O" or "C"
+        SunIcon.BackgroundColor3 = (hrs >= 6 and hrs < 18) and Color3.fromRGB(255, 220, 100) or Color3.fromRGB(200, 200, 230)
+    end
+end)
+
+local AmbSection = Instance.new("Frame")
+AmbSection.BackgroundColor3 = Theme.Secondary
+AmbSection.Position = UDim2.new(0, 8, 0, 125)
+AmbSection.Size = UDim2.new(1, -16, 0, 120)
+AmbSection.ZIndex = 102
+AmbSection.Parent = LightContent
+CreateCorner(AmbSection, 8)
+
+local AmbLabel = Instance.new("TextLabel")
+AmbLabel.BackgroundTransparency = 1
+AmbLabel.Position = UDim2.new(0, 10, 0, 6)
+AmbLabel.Size = UDim2.new(1, -20, 0, 18)
+AmbLabel.Font = Enum.Font.GothamBold
+AmbLabel.Text = "AMBIENTE"
+AmbLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
+AmbLabel.TextSize = 11
+AmbLabel.TextXAlignment = Enum.TextXAlignment.Left
+AmbLabel.ZIndex = 103
+AmbLabel.Parent = AmbSection
+
+local function MakeLightSlider(parent, yPos, labelText, prop, minVal, maxVal)
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Position = UDim2.new(0, 10, 0, yPos)
+    lbl.Size = UDim2.new(1, -20, 0, 12)
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.Text = labelText
+    lbl.TextColor3 = Theme.TextDim
+    lbl.TextSize = 9
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 103
+    lbl.Parent = parent
+    
+    local bg = Instance.new("Frame")
+    bg.BackgroundColor3 = Theme.Tertiary
+    bg.Position = UDim2.new(0, 10, 0, yPos + 14)
+    bg.Size = UDim2.new(1, -20, 0, 12)
+    bg.ZIndex = 103
+    bg.Parent = parent
+    CreateCorner(bg, 6)
+    
+    local curVal = 0.5
+    pcall(function() curVal = (Lighting[prop] - minVal) / (maxVal - minVal) end)
+    
+    local fill = Instance.new("Frame")
+    fill.BackgroundColor3 = Color3.fromRGB(255, 200, 50)
+    fill.Size = UDim2.new(math.clamp(curVal, 0, 1), 0, 1, 0)
+    fill.ZIndex = 104
+    fill.Parent = bg
+    CreateCorner(fill, 6)
+    
+    local drag = false
+    bg.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+            drag = true
+        end
+    end)
+    bg.InputEnded:Connect(function() drag = false end)
+    
+    UserInputService.InputChanged:Connect(function(i)
+        if drag and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+            local rel = math.clamp((i.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+            fill.Size = UDim2.new(rel, 0, 1, 0)
+            pcall(function() Lighting[prop] = minVal + (maxVal - minVal) * rel end)
+        end
+    end)
+end
+
+MakeLightSlider(AmbSection, 28, "Brilho", "Brightness", 0, 3)
+MakeLightSlider(AmbSection, 56, "Exposicao", "ExposureCompensation", -3, 3)
+MakeLightSlider(AmbSection, 84, "Ambiente", "EnvironmentDiffuseScale", 0, 1)
+
+LightClose.MouseButton1Click:Connect(function()
+    LightFrame.Visible = false
+end)
+
+pluginBtns["LightingTools"].MouseButton1Click:Connect(function()
+    LightFrame.Visible = true
+    PluginsMenu.Visible = false
+    menuOpen = false
+    PluginsBtn.Text = "[+] Plugins"
+end)
+
+-- ============================================
+-- CODE EDITOR PLUGIN
+-- ============================================
+
+local CodeFrame = Instance.new("Frame")
+CodeFrame.Name = "CodeEditor"
+CodeFrame.BackgroundColor3 = Theme.Primary
+CodeFrame.Position = UDim2.new(0.5, -155, 0.5, -165)
+CodeFrame.Size = UDim2.new(0, 310, 0, 330)
+CodeFrame.Visible = false
+CodeFrame.ZIndex = 100
+CodeFrame.Parent = ScreenGui
+CreateCorner(CodeFrame, 12)
+CreateStroke(CodeFrame, Color3.fromRGB(100, 180, 255), 2)
+
+local CodeHeader = Instance.new("Frame")
+CodeHeader.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+CodeHeader.Size = UDim2.new(1, 0, 0, 42)
+CodeHeader.ZIndex = 101
+CodeHeader.Parent = CodeFrame
+CreateCorner(CodeHeader, 12)
+
+local CodeTitle = Instance.new("TextLabel")
+CodeTitle.BackgroundTransparency = 1
+CodeTitle.Position = UDim2.new(0, 14, 0, 0)
+CodeTitle.Size = UDim2.new(1, -55, 1, 0)
+CodeTitle.Font = Enum.Font.GothamBold
+CodeTitle.Text = "Code Editor"
+CodeTitle.TextColor3 = Theme.Primary
+CodeTitle.TextSize = 14
+CodeTitle.TextXAlignment = Enum.TextXAlignment.Left
+CodeTitle.ZIndex = 102
+CodeTitle.Parent = CodeHeader
+
+local CodeClose = Instance.new("TextButton")
+CodeClose.BackgroundColor3 = Color3.fromRGB(70, 140, 200)
+CodeClose.Position = UDim2.new(1, -38, 0.5, -13)
+CodeClose.Size = UDim2.new(0, 26, 0, 26)
+CodeClose.Font = Enum.Font.GothamBold
+CodeClose.Text = "X"
+CodeClose.TextColor3 = Theme.Text
+CodeClose.TextSize = 14
+CodeClose.ZIndex = 102
+CodeClose.Parent = CodeHeader
+CreateCorner(CodeClose, 6)
+
+local CodeToolbar = Instance.new("Frame")
+CodeToolbar.BackgroundColor3 = Theme.Secondary
+CodeToolbar.Position = UDim2.new(0, 0, 0, 42)
+CodeToolbar.Size = UDim2.new(1, 0, 0, 34)
+CodeToolbar.ZIndex = 101
+CodeToolbar.Parent = CodeFrame
+
+local ToolLayout = Instance.new("UIListLayout")
+ToolLayout.FillDirection = Enum.FillDirection.Horizontal
+ToolLayout.Padding = UDim.new(0, 6)
+ToolLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+ToolLayout.Parent = CodeToolbar
+
+local ToolPad = Instance.new("UIPadding")
+ToolPad.PaddingLeft = UDim.new(0, 8)
+ToolPad.Parent = CodeToolbar
+
+local CodeArea = Instance.new("ScrollingFrame")
+CodeArea.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+CodeArea.Position = UDim2.new(0, 8, 0, 81)
+CodeArea.Size = UDim2.new(1, -16, 1, -125)
+CodeArea.CanvasSize = UDim2.new(0, 0, 0, 600)
+CodeArea.ScrollBarThickness = 4
+CodeArea.ScrollBarImageColor3 = Color3.fromRGB(100, 180, 255)
+CodeArea.ZIndex = 101
+CodeArea.Parent = CodeFrame
+CreateCorner(CodeArea, 8)
+
+local CodeInput = Instance.new("TextBox")
+CodeInput.BackgroundTransparency = 1
+CodeInput.Position = UDim2.new(0, 8, 0, 6)
+CodeInput.Size = UDim2.new(1, -16, 1, -12)
+CodeInput.Font = Enum.Font.Code
+CodeInput.Text = "-- Escreva seu codigo Lua aqui\n\nlocal part = Instance.new(\"Part\")\npart.Size = Vector3.new(4, 4, 4)\npart.Position = Vector3.new(0, 10, 0)\npart.Anchored = true\npart.Parent = workspace\n\nprint(\"Ola!\")"
+CodeInput.TextColor3 = Color3.fromRGB(200, 220, 255)
+CodeInput.TextSize = 11
+CodeInput.TextXAlignment = Enum.TextXAlignment.Left
+CodeInput.TextYAlignment = Enum.TextYAlignment.Top
+CodeInput.MultiLine = true
+CodeInput.ClearTextOnFocus = false
+CodeInput.ZIndex = 102
+CodeInput.Parent = CodeArea
+
+local OutputFrame = Instance.new("Frame")
+OutputFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+OutputFrame.Position = UDim2.new(0, 8, 1, -40)
+OutputFrame.Size = UDim2.new(1, -16, 0, 34)
+OutputFrame.ZIndex = 101
+OutputFrame.Parent = CodeFrame
+CreateCorner(OutputFrame, 8)
+
+local OutputLabel = Instance.new("TextLabel")
+OutputLabel.BackgroundTransparency = 1
+OutputLabel.Size = UDim2.new(1, -12, 1, 0)
+OutputLabel.Position = UDim2.new(0, 6, 0, 0)
+OutputLabel.Font = Enum.Font.Code
+OutputLabel.Text = "Output: Pronto..."
+OutputLabel.TextColor3 = Theme.Success
+OutputLabel.TextSize = 10
+OutputLabel.TextXAlignment = Enum.TextXAlignment.Left
+OutputLabel.TextWrapped = true
+OutputLabel.ZIndex = 102
+OutputLabel.Parent = OutputFrame
+
+local function MakeToolBtn(txt, cb)
+    local b = Instance.new("TextButton")
+    b.BackgroundColor3 = Theme.Tertiary
+    b.Size = UDim2.new(0, 68, 0, 26)
+    b.Font = Enum.Font.GothamMedium
+    b.Text = txt
+    b.TextColor3 = Theme.Text
+    b.TextSize = 10
+    b.ZIndex = 102
+    b.Parent = CodeToolbar
+    CreateCorner(b, 6)
+    b.MouseButton1Click:Connect(cb)
+end
+
+MakeToolBtn("Executar", function()
+    local code = CodeInput.Text
+    local ok, err = pcall(function()
+        local fn = loadstring(code)
+        if fn then fn() end
+    end)
+    if ok then
+        OutputLabel.Text = "Sucesso!"
+        OutputLabel.TextColor3 = Theme.Success
+    else
+        OutputLabel.Text = "Erro: " .. tostring(err):sub(1, 60)
+        OutputLabel.TextColor3 = Theme.Error
+    end
+end)
+
+MakeToolBtn("Limpar", function()
+    CodeInput.Text = ""
+    OutputLabel.Text = "Output: Limpo"
+    OutputLabel.TextColor3 = Theme.TextDim
+end)
+
+MakeToolBtn("Template", function()
+    CodeInput.Text = "-- Template Part\nlocal p = Instance.new(\"Part\")\np.Size = Vector3.new(4,4,4)\np.Position = Vector3.new(0,10,0)\np.Anchored = true\np.Material = Enum.Material.Neon\np.Color = Color3.fromRGB(0,200,255)\np.Parent = workspace"
+end)
+
+CodeClose.MouseButton1Click:Connect(function()
+    CodeFrame.Visible = false
+end)
+
+pluginBtns["CodeEditor"].MouseButton1Click:Connect(function()
+    CodeFrame.Visible = true
+    PluginsMenu.Visible = false
+    menuOpen = false
+    PluginsBtn.Text = "[+] Plugins"
+end)
+
+-- ============================================
+-- TREE GENERATOR PLUGIN
+-- ============================================
+
+local TreeFrame = Instance.new("Frame")
+TreeFrame.Name = "TreeGenerator"
+TreeFrame.BackgroundColor3 = Theme.Primary
+TreeFrame.Position = UDim2.new(0.5, -140, 0.5, -170)
+TreeFrame.Size = UDim2.new(0, 280, 0, 340)
+TreeFrame.Visible = false
+TreeFrame.ZIndex = 100
+TreeFrame.Parent = ScreenGui
+CreateCorner(TreeFrame, 12)
+CreateStroke(TreeFrame, Color3.fromRGB(100, 220, 100), 2)
+
+local TreeHeader = Instance.new("Frame")
+TreeHeader.BackgroundColor3 = Color3.fromRGB(100, 220, 100)
+TreeHeader.Size = UDim2.new(1, 0, 0, 42)
+TreeHeader.ZIndex = 101
+TreeHeader.Parent = TreeFrame
+CreateCorner(TreeHeader, 12)
+
+local TreeTitle = Instance.new("TextLabel")
+TreeTitle.BackgroundTransparency = 1
+TreeTitle.Position = UDim2.new(0, 14, 0, 0)
+TreeTitle.Size = UDim2.new(1, -55, 1, 0)
+TreeTitle.Font = Enum.Font.GothamBold
+TreeTitle.Text = "Tree Generator"
+TreeTitle.TextColor3 = Theme.Primary
+TreeTitle.TextSize = 14
+TreeTitle.TextXAlignment = Enum.TextXAlignment.Left
+TreeTitle.ZIndex = 102
+TreeTitle.Parent = TreeHeader
+
+local TreeClose = Instance.new("TextButton")
+TreeClose.BackgroundColor3 = Color3.fromRGB(70, 180, 70)
+TreeClose.Position = UDim2.new(1, -38, 0.5, -13)
+TreeClose.Size = UDim2.new(0, 26, 0, 26)
+TreeClose.Font = Enum.Font.GothamBold
+TreeClose.Text = "X"
+TreeClose.TextColor3 = Theme.Text
+TreeClose.TextSize = 14
+TreeClose.ZIndex = 102
+TreeClose.Parent = TreeHeader
+CreateCorner(TreeClose, 6)
+
+local TreeContent = Instance.new("ScrollingFrame")
+TreeContent.BackgroundTransparency = 1
+TreeContent.Position = UDim2.new(0, 0, 0, 47)
+TreeContent.Size = UDim2.new(1, 0, 1, -52)
+TreeContent.CanvasSize = UDim2.new(0, 0, 0, 320)
+TreeContent.ScrollBarThickness = 4
+TreeContent.ScrollBarImageColor3 = Theme.Accent
+TreeContent.ZIndex = 101
+TreeContent.Parent = TreeFrame
+
+local TreeCfg = {
+    Mode = "Different",
+    TreeType = "Oak",
+    Size = 1,
+    Density = 0.3,
+    Placing = false
+}
+
+local ModeSection = Instance.new("Frame")
+ModeSection.BackgroundColor3 = Theme.Secondary
+ModeSection.Position = UDim2.new(0, 8, 0, 5)
+ModeSection.Size = UDim2.new(1, -16, 0, 58)
+ModeSection.ZIndex = 102
+ModeSection.Parent = TreeContent
+CreateCorner(ModeSection, 8)
+
+local ModeLabel = Instance.new("TextLabel")
+ModeLabel.BackgroundTransparency = 1
+ModeLabel.Position = UDim2.new(0, 10, 0, 6)
+ModeLabel.Size = UDim2.new(1, -20, 0, 16)
+ModeLabel.Font = Enum.Font.GothamBold
+ModeLabel.Text = "MODO"
+ModeLabel.TextColor3 = Color3.fromRGB(100, 220, 100)
+ModeLabel.TextSize = 11
+ModeLabel.TextXAlignment = Enum.TextXAlignment.Left
+ModeLabel.ZIndex = 103
+ModeLabel.Parent = ModeSection
+
+local ModeGrid = Instance.new("Frame")
+ModeGrid.BackgroundTransparency = 1
+ModeGrid.Position = UDim2.new(0, 10, 0, 26)
+ModeGrid.Size = UDim2.new(1, -20, 0, 26)
+ModeGrid.ZIndex = 103
+ModeGrid.Parent = ModeSection
+
+local ModeLayout = Instance.new("UIListLayout")
+ModeLayout.FillDirection = Enum.FillDirection.Horizontal
+ModeLayout.Padding = UDim.new(0, 10)
+ModeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+ModeLayout.Parent = ModeGrid
+
+local ModeBtns = {}
+for _, m in ipairs({"Different", "Same"}) do
+    local mb = Instance.new("TextButton")
+    mb.BackgroundColor3 = m == "Different" and Color3.fromRGB(100, 220, 100) or Theme.Tertiary
+    mb.Size = UDim2.new(0, 115, 0, 24)
+    mb.Font = Enum.Font.GothamMedium
+    mb.Text = m == "Different" and "Diferentes" or "Iguais"
+    mb.TextColor3 = m == "Different" and Theme.Primary or Theme.Text
+    mb.TextSize = 11
+    mb.ZIndex = 104
+    mb.Parent = ModeGrid
+    CreateCorner(mb, 6)
+    ModeBtns[m] = mb
+    
+    mb.MouseButton1Click:Connect(function()
+        TreeCfg.Mode = m
+        for n, b in pairs(ModeBtns) do
+            b.BackgroundColor3 = n == m and Color3.fromRGB(100, 220, 100) or Theme.Tertiary
+            b.TextColor3 = n == m and Theme.Primary or Theme.Text
+        end
+    end)
+end
+
+local TypeSection = Instance.new("Frame")
+TypeSection.BackgroundColor3 = Theme.Secondary
+TypeSection.Position = UDim2.new(0, 8, 0, 68)
+TypeSection.Size = UDim2.new(1, -16, 0, 78)
+TypeSection.ZIndex = 102
+TypeSection.Parent = TreeContent
+CreateCorner(TypeSection, 8)
+
+local TypeLabel = Instance.new("TextLabel")
+TypeLabel.BackgroundTransparency = 1
+TypeLabel.Position = UDim2.new(0, 10, 0, 6)
+TypeLabel.Size = UDim2.new(1, -20, 0, 16)
+TypeLabel.Font = Enum.Font.GothamBold
+TypeLabel.Text = "TIPO"
+TypeLabel.TextColor3 = Color3.fromRGB(100, 220, 100)
+TypeLabel.TextSize = 11
+TypeLabel.TextXAlignment = Enum.TextXAlignment.Left
+TypeLabel.ZIndex = 103
+TypeLabel.Parent = TypeSection
+
+local TypeGrid = Instance.new("Frame")
+TypeGrid.BackgroundTransparency = 1
+TypeGrid.Position = UDim2.new(0, 6, 0, 26)
+TypeGrid.Size = UDim2.new(1, -12, 0, 48)
+TypeGrid.ZIndex = 103
+TypeGrid.Parent = TypeSection
+
+local TypeGridLayout = Instance.new("UIGridLayout")
+TypeGridLayout.CellSize = UDim2.new(0, 82, 0, 22)
+TypeGridLayout.CellPadding = UDim2.new(0, 4, 0, 4)
+TypeGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TypeGridLayout.Parent = TypeGrid
+
+local TreeTypes = {
+    {N = "Oak", C = Color3.fromRGB(100, 180, 80)},
+    {N = "Pine", C = Color3.fromRGB(50, 120, 50)},
+    {N = "Palm", C = Color3.fromRGB(150, 200, 100)},
+    {N = "Cherry", C = Color3.fromRGB(255, 150, 200)},
+    {N = "Autumn", C = Color3.fromRGB(255, 150, 50)},
+    {N = "Dead", C = Color3.fromRGB(100, 80, 60)}
+}
+
+local TypeBtns = {}
+for _, tt in ipairs(TreeTypes) do
+    local tb = Instance.new("TextButton")
+    tb.BackgroundColor3 = tt.N == "Oak" and tt.C or Theme.Tertiary
+    tb.Font = Enum.Font.GothamMedium
+    tb.Text = tt.N
+    tb.TextColor3 = tt.N == "Oak" and Theme.Primary or Theme.Text
+    tb.TextSize = 10
+    tb.ZIndex = 104
+    tb.Parent = TypeGrid
+    CreateCorner(tb, 6)
+    TypeBtns[tt.N] = {B = tb, C = tt.C}
+    
+    tb.MouseButton1Click:Connect(function()
+        TreeCfg.TreeType = tt.N
+        for n, d in pairs(TypeBtns) do
+            d.B.BackgroundColor3 = n == tt.N and d.C or Theme.Tertiary
+            d.B.TextColor3 = n == tt.N and Theme.Primary or Theme.Text
+        end
+    end)
+end
+
+local ParamSection = Instance.new("Frame")
+ParamSection.BackgroundColor3 = Theme.Secondary
+ParamSection.Position = UDim2.new(0, 8, 0, 151)
+ParamSection.Size = UDim2.new(1, -16, 0, 75)
+ParamSection.ZIndex = 102
+ParamSection.Parent = TreeContent
+CreateCorner(ParamSection, 8)
+
+local ParamLabel = Instance.new("TextLabel")
+ParamLabel.BackgroundTransparency = 1
+ParamLabel.Position = UDim2.new(0, 10, 0, 6)
+ParamLabel.Size = UDim2.new(1, -20, 0, 16)
+ParamLabel.Font = Enum.Font.GothamBold
+ParamLabel.Text = "PARAMETROS"
+ParamLabel.TextColor3 = Color3.fromRGB(100, 220, 100)
+ParamLabel.TextSize = 11
+ParamLabel.TextXAlignment = Enum.TextXAlignment.Left
+ParamLabel.ZIndex = 103
+ParamLabel.Parent = ParamSection
+
+local function MakeTreeSlider(parent, yPos, labelText, defaultVal, minVal, maxVal, cb)
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Position = UDim2.new(0, 10, 0, yPos)
+    lbl.Size = UDim2.new(1, -20, 0, 12)
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.Text = labelText .. ": " .. string.format("%.1f", defaultVal)
+    lbl.TextColor3 = Theme.TextDim
+    lbl.TextSize = 9
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 103
+    lbl.Parent = parent
+    
+    local bg = Instance.new("Frame")
+    bg.BackgroundColor3 = Theme.Tertiary
+    bg.Position = UDim2.new(0, 10, 0, yPos + 14)
+    bg.Size = UDim2.new(1, -20, 0, 12)
+    bg.ZIndex = 103
+    bg.Parent = parent
+    CreateCorner(bg, 6)
+    
+    local fill = Instance.new("Frame")
+    fill.BackgroundColor3 = Color3.fromRGB(100, 220, 100)
+    fill.Size = UDim2.new((defaultVal - minVal) / (maxVal - minVal), 0, 1, 0)
+    fill.ZIndex = 104
+    fill.Parent = bg
+    CreateCorner(fill, 6)
+    
+    local drag = false
+    bg.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+            drag = true
+        end
+    end)
+    bg.InputEnded:Connect(function() drag = false end)
+    
+    UserInputService.InputChanged:Connect(function(i)
+        if drag and (i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement) then
+            local rel = math.clamp((i.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+            fill.Size = UDim2.new(rel, 0, 1, 0)
+            local val = minVal + (maxVal - minVal) * rel
+            lbl.Text = labelText .. ": " .. string.format("%.1f", val)
+            cb(val)
+        end
+    end)
+end
+
+MakeTreeSlider(ParamSection, 26, "Tamanho", 1, 0.5, 3, function(v) TreeCfg.Size = v end)
+MakeTreeSlider(ParamSection, 52, "Densidade", 0.3, 0.1, 0.8, function(v) TreeCfg.Density = v end)
+
+local TreeBtn = Instance.new("TextButton")
+TreeBtn.BackgroundColor3 = Color3.fromRGB(100, 220, 100)
+TreeBtn.Position = UDim2.new(0, 8, 0, 235)
+TreeBtn.Size = UDim2.new(1, -16, 0, 42)
+TreeBtn.Font = Enum.Font.GothamBold
+TreeBtn.Text = "PLANTAR ARVORES"
+TreeBtn.TextColor3 = Theme.Primary
+TreeBtn.TextSize = 13
+TreeBtn.ZIndex = 103
+TreeBtn.Parent = TreeContent
+CreateCorner(TreeBtn, 10)
+
+local function MakeTree(pos, tType, sz)
+    local folder = Instance.new("Model")
+    folder.Name = "Tree_" .. tType
+    
+    local tH = 8 * sz
+    local tW = 1.5 * sz
+    
+    local trunk = Instance.new("Part")
+    trunk.Name = "Trunk"
+    trunk.Size = Vector3.new(tW, tH, tW)
+    trunk.Position = pos + Vector3.new(0, tH/2, 0)
+    trunk.Color = Color3.fromRGB(139, 90, 43)
+    trunk.Material = Enum.Material.Wood
+    trunk.Anchored = true
+    trunk.Parent = folder
+    
+    if tType == "Oak" then
+        local leaves = Instance.new("Part")
+        leaves.Shape = Enum.PartType.Ball
+        leaves.Size = Vector3.new(10*sz, 8*sz, 10*sz)
+        leaves.Position = pos + Vector3.new(0, tH + 3*sz, 0)
+        leaves.Color = Color3.fromRGB(34, 139, 34)
+        leaves.Material = Enum.Material.Grass
+        leaves.Anchored = true
+        leaves.Parent = folder
+    elseif tType == "Pine" then
+        for i = 1, 4 do
+            local cone = Instance.new("Part")
+            cone.Size = Vector3.new((5-i)*sz, 3*sz, (5-i)*sz)
+            cone.Position = pos + Vector3.new(0, tH - 2 + i*2.5*sz, 0)
+            cone.Color = Color3.fromRGB(34, 100, 34)
+            cone.Material = Enum.Material.Grass
+            cone.Anchored = true
+            cone.Parent = folder
+        end
+    elseif tType == "Palm" then
+        trunk.Size = Vector3.new(tW*0.8, tH*1.2, tW*0.8)
+        trunk.Position = pos + Vector3.new(0, tH*0.6, 0)
+        for i = 1, 6 do
+            local frond = Instance.new("Part")
+            frond.Size = Vector3.new(8*sz, 0.5*sz, 2*sz)
+            local ang = math.rad(i*60)
+            frond.CFrame = CFrame.new(pos + Vector3.new(0, tH*1.2, 0)) * CFrame.Angles(0, ang, math.rad(30)) * CFrame.new(4*sz, 0, 0)
+            frond.Color = Color3.fromRGB(50, 180, 50)
+            frond.Material = Enum.Material.Grass
+            frond.Anchored = true
+            frond.Parent = folder
+        end
+    elseif tType == "Cherry" then
+        local leaves = Instance.new("Part")
+        leaves.Shape = Enum.PartType.Ball
+        leaves.Size = Vector3.new(9*sz, 7*sz, 9*sz)
+        leaves.Position = pos + Vector3.new(0, tH + 2.5*sz, 0)
+        leaves.Color = Color3.fromRGB(255, 182, 193)
+        leaves.Material = Enum.Material.Grass
+        leaves.Anchored = true
+        leaves.Parent = folder
+    elseif tType == "Autumn" then
+        local leaves = Instance.new("Part")
+        leaves.Shape = Enum.PartType.Ball
+        leaves.Size = Vector3.new(10*sz, 8*sz, 10*sz)
+        leaves.Position = pos + Vector3.new(0, tH + 3*sz, 0)
+        leaves.Color = Color3.fromRGB(255, 140, 0)
+        leaves.Material = Enum.Material.Grass
+        leaves.Anchored = true
+        leaves.Parent = folder
+    elseif tType == "Dead" then
+        trunk.Color = Color3.fromRGB(80, 60, 40)
+        for i = 1, 3 do
+            local branch = Instance.new("Part")
+            branch.Size = Vector3.new(0.5*sz, 4*sz, 0.5*sz)
+            local ang = math.rad(i*120)
+            branch.CFrame = CFrame.new(pos + Vector3.new(0, tH*0.8, 0)) * CFrame.Angles(0, ang, math.rad(45)) * CFrame.new(2*sz, 0, 0)
+            branch.Color = Color3.fromRGB(80, 60, 40)
+            branch.Material = Enum.Material.Wood
+            branch.Anchored = true
+            branch.Parent = folder
+        end
+    end
+    
+    folder.Parent = workspace
+    return folder
+end
+
+local lastTreeTime = 0
+local lastTreePos = nil
+local treeInterval = 0.25
+local minTreeDist = 10
+
+TreeBtn.MouseButton1Click:Connect(function()
+    TreeCfg.Placing = not TreeCfg.Placing
+    TreeBtn.Text = TreeCfg.Placing and "PARAR" or "PLANTAR ARVORES"
+    TreeBtn.BackgroundColor3 = TreeCfg.Placing and Theme.Warning or Color3.fromRGB(100, 220, 100)
+end)
+
+TreeClose.MouseButton1Click:Connect(function()
+    TreeFrame.Visible = false
+    TreeCfg.Placing = false
+    TreeBtn.Text = "PLANTAR ARVORES"
+    TreeBtn.BackgroundColor3 = Color3.fromRGB(100, 220, 100)
+end)
+
+pluginBtns["TreeGenerator"].MouseButton1Click:Connect(function()
+    TreeFrame.Visible = true
+    PluginsMenu.Visible = false
+    menuOpen = false
+    PluginsBtn.Text = "[+] Plugins"
+end)
+
+-- ============================================
+-- GLOBAL INPUT
+-- ============================================
+
+local isPlacing = false
+local lastPlaceTime = 0
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        if IsTouchOnUI(input.Position) then return end
+        local pos, hit = RaycastWorld(input.Position)
+        
+        if ArchConfig.Placing and hit and pos then
+            BuildArchShape(pos)
+            ArchConfig.Placing = false
+            ArchBtn.Text = "POSICIONAR NO MUNDO"
+            ArchBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+        end
+        
+        if TreeCfg.Placing and hit and pos then
+            isPlacing = true
+            local tType = TreeCfg.Mode == "Different" and TreeTypes[math.random(1, #TreeTypes)].N or TreeCfg.TreeType
+            local szVar = TreeCfg.Mode == "Different" and (TreeCfg.Size * (0.7 + math.random() * 0.6)) or TreeCfg.Size
+            MakeTree(pos, tType, szVar)
+            lastPlaceTime = tick()
+            lastTreePos = pos
+        end
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not isPlacing or not TreeCfg.Placing then return end
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+        if IsTouchOnUI(input.Position) then return end
+        local pos, hit = RaycastWorld(input.Position)
+        if hit and pos then
+            local timeOK = tick() - lastPlaceTime >= treeInterval / TreeCfg.Density
+            local distOK = not lastTreePos or (pos - lastTreePos).Magnitude >= minTreeDist
+            if timeOK and distOK then
+                local tType = TreeCfg.Mode == "Different" and TreeTypes[math.random(1, #TreeTypes)].N or TreeCfg.TreeType
+                local szVar = TreeCfg.Mode == "Different" and (TreeCfg.Size * (0.7 + math.random() * 0.6)) or TreeCfg.Size
+                MakeTree(pos, tType, szVar)
+                lastPlaceTime = tick()
+                lastTreePos = pos
+            end
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        isPlacing = false
+        lastTreePos = nil
+    end
+end)
+
+print("LIGHTNING PLUGINS HUB PRO v1.0 Carregado!")
+print("- Archimedes: Formas curvas")
+print("- LightingTools: Luzes e ambiente")
+print("- CodeEditor: Editor Lua")
+print("- TreeGenerator: Arvores")
