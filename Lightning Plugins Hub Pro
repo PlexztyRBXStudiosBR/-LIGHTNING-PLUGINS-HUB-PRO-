@@ -1301,4 +1301,5 @@ print("LIGHTNING PLUGINS HUB PRO v1.0 Carregado!")
 print("- Archimedes: Formas curvas")
 print("- LightingTools: Luzes e ambiente")
 print("- CodeEditor: Editor Lua")
+
 print("- TreeGenerator: Arvores")
