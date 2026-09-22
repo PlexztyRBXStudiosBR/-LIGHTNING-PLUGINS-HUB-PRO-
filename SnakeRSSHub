@@ -1,343 +1,3933 @@
---[[
-    ╔══════════════════════════════════════════════════════════════════════════════════╗
-    ║                 ⚡ REALISTIC STREET SOCCER | TOP GLOBAL HUB ⚡                   ║
-    ║  PlaceId: 14315258385 | Rayfield UI 10 Abas | Mobile & PC Universal             ║
-    ╚══════════════════════════════════════════════════════════════════════════════════╝
---]]
+--[[ =====================================================================
+     ARKHER STREET SOCCER — HUB LOCAL (Rayfield · 10 abas · celular + PC)
+     =====================================================================
+     Jogo: Realista Futebol de Rua
+       ID do local: 14315258385
+       Universo: 4949420752
+       Estúdio: The Builder's Legion / V_ersalty
 
-local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local CoreGui = game:GetService("CoreGui")
-local Lighting = game:GetService("Lighting")
-local HttpService = game:GetService("HttpService")
-local VirtualUser = game:GetService("VirtualUser")
+     O QUE ISTO E
+       Um LocalScript unico (executor: execute/loadstring) com 10 abas
+       Rayfield, pensado para rodar liso em celular fraco (itel A70 e
+       parecidos) e no PC, em executor QUALQUER.
 
-local LocalPlayer = Players.LocalPlayer
+     CONTROLES DO JOGO (descobertos na pesquisa e usados ​​aqui)
+       Segurar clique esquerdo ... chute/carregado (soltar = chuta)
+       Q ........................... drible (finta)
+       E ........................... carrinho/equipamento
+       Mudança ........................... corrida
+       Ctrl ....................... bloqueio do mouse
+       Espaço .................... cabecada
+       Mobile: botoes na tela + joystick (mesmos controles remotos por baixo)
 
-local function getSafeUIContainer()
-    local success, result = pcall(function()
-        if type(gethui) == "function" then return gethui() end
-        return CoreGui
-    end)
-    if success and result then return result end
-    return LocalPlayer:WaitForChild("PlayerGui")
-end
+     ARQUITETURA (o motivo de dar 99% de certeza)
+       1) CAMADA OBSERVADORA — gancho passivo de __namecall. O jogo dispara
+          os controles remotos DE VERDADE e nos aprender a assinatura exata:
+          RemoteEvent, ordem dos argumentos, tipos e VALORES. Nada de
+          "chute e veja". Isso não chama remoto nenhum: então olhe.
+       2) CAMADA DE ADAPTAÇÃO — cada pedido reusa a assinatura aprendida
+          trocando apenas o que precisa trocar (ponto de mira, força).
+          Se o jogo mudar os argumentos, a assinatura reaprende sozinha.
+       3) CAMADA DE CONTINGÊNCIA — se ainda não houver assinatura (jogo
+          reiniciado agora), o hub usa a via ORIGINAL: mira de verdade na
+          trave/canto, segura o clique o tempo máximo, solta. Nunca
+          "adivinha" remoto, nunca da Teleport, nunca mexe no servidor.
+       4) LACO FECHADO — depois de toda acao o hub CONFERE o resultado de
+          verdade (a bola mudou de posição? a bola entrou? o adversário
+          perdeu a bola?) e REPETE se falhou, com limite. E o que separa
+          "chutei" de "acertei". As estatísticas reais ficam na aba Stats.
 
-local Config = {
-    TopGlobal = {
-        Enabled = false,
-        AutoAnkleBreaker = true,
-        AutoGoalFinish = true,
-        AutoSlideSteal = true,
-        AutoGKSave = true,
-        Playstyle = "Ranked Meta (Top 1)",
-    },
-    AutoShoot = {
-        Enabled = true,
-        ButtonEnabled = true,
-        ShotStyle = "Random OP (99% Acerto)",
-        ShotPower = 340,
-        CurveIntensity = 65,
-        Elevation = 18,
-        TargetGoal = "Auto Detect Opponent Goal",
-    },
-    AutoDribble = {
-        Enabled = true,
-        TriggerDistance = 8.5,
-        AnkleBreakerAura = true,
-        BypassDekeSpoof = true,
-        DribbleTechnique = "Stepover / Pedalada",
-        SpeedMultiplier = 1.6,
-    },
-    AutoTackle = {
-        Enabled = true,
-        ReachDistance = 14,
-        AntiDribbleIframe = true,
-        TackleAura = true,
-        SlideImpulse = 1.8,
-    },
-    AutoActions = {
-        AutoBicycleKick = true,
-        AutoHeader = true,
-        AutoVolley = true,
-        MinHeight = 4.2,
-        TriggerRange = 16,
-    },
-    Goalkeeper = {
-        AutoDive = true,
-        ReactionTime = 0.05,
-        AutoDefenseLegit = true,
-        AutoPass = true,
-        AutoPassDistance = 60,
-        AntiCurveTracker = true,
-        DiveReachMultiplier = 2.0,
-    },
-    Movement = {
-        InfiniteStamina = true,
-        SpeedBoost = false,
-        SpeedValue = 24,
-        InfiniteSprint = true,
-        JumpAnytime = true,
-        NoTrip = true,
-        BallMagnet = false,
-        MagnetDistance = 7,
-    },
-    Visuals = {
-        BallESP = true,
-        PlayerESP = true,
-        GoalESP = true,
-    },
-    AutoFarm = {
-        AutoDailyReward = true,
-        AntiAFK = true,
-    },
-    AntiLag = {
-        PotatoMode = false,
-        FloatingButtonTransparency = 0.35,
-        FloatingButtonScale = 80,
-    }
+     ARVORE DO JOGO (lida do Explorer real do cliente)
+       Workspace.ball ......................... uma bola (pontuação 410)
+       Espaço de trabalho.HomeGoal / AwayGoal
+         .Quadro.Barra transversal ...................... 500
+         .Frame.BackPost ...................... 420
+         .Alvo baixo (x3) .Médio.Esquerda/Centro/Direita
+         .HighTargets.Target (x3) .DeviantTargets.Target (curva)
+       Workspace.Referee.RefereeMove ........... juiz (faltas, gol)
+       Jogadores.<voz>.PlayerGui.Stamina.Frame.Speed
+       ReplicatedStorage.Remotes.* (123 visíveis, 44 conhecidos)
+
+     REMOTES REAIS USADOS (sempre com a assinatura aprendida do jogo)
+       Chutar a bola [chute] Passe [passe] Desarme [tackle] Ação [acao]
+       GKHitbox (opcional, com assinatura) ClaimStick Collect
+       DailyReward / DailyRewardEvents.ClaimReward WQuest Equip Jersey
+       Configurações do Avatar | Resgatar Código | Conteúdo: {Cartas, Drible, Goleiro, Sapatos}
+       ShopBundleEvents.{ShopEvent,ResetShop} (loja: então não há manual de botao)
+     REMOTES SO ESCUTADOS (o servidor manda, nos so contamos — nunca disparamos)
+       Workspace.Referee.RefereeMove
+       PlayerGui.Exclamation.{falta, artilheiro, pênalti}.Referee.Referee.RefereeMove
+       PlayerGui.Stamina.Frame.Speed ​​(barra de energia do jogo: não se mexe)
+       PublicPing / PingSend (latência, portanto leitura)
+     REMOTES IGNORADOS DE PROPOSITO (existem, mas não são do nosso jogo)
+       GlobalMessage.* (mensagem global e do servidor; disparar = banimento)
+       AdminPanelRS.RE Salvar Desempacotar Comprar Posição de Pênalti de Confronto
+       RequestShowAdEvent RecheckAdAvailabilityEvent numeric 0.xxxx
+       (os nomes numéricos mudam a cada build: nunca confie neles)
+     REMOTES DO ROBLOX (não do jogo): RobloxReplicatedStorage.*
+     REMOTES DE ISCA / PERIGOSOS — O HUB NUNCA TOCA
+       ShootTheBaII (com "i" maiusculo = isca do anti-cheat)
+       AdminBan Teleport lançamento / Iancage tcelloc cfactor
+       FPSNORE PINGNORE AdminPanelRS.RE Salvar Zero (0.xxxx)
+
+     LIMITE HONESTO (esta escrito no script, não tão aqui)
+       - O servidor decide. Cliente pede. Nenhum hub de Roblox "garante"
+         %: o que da para fazer — e este arquivo faz — e usar a
+         assinatura real + conferir o resultado + repetir quando falha.
+         As estatísticas da aba Stats mostram a taxa MEDIDA no seu jogo.
+       - Sem teletransporte (nunca). Bola e servidor: teleporte de cliente e
+         detecção instantânea e o jogo avisa que bane conta alternativa.
+       - Gamepass: o servidor verificado possui a verdade. "Desbloquear tudo"
+         aqui cobra os controles remotos do jogo (resgate, coleta, sorteio, equipar),
+         le os conteúdos liberados e pode marcar cosméticos SO NA SUA TELA.
+         Beneficio real de gamepass não existe por cliente. Esta escrito na
+         própria aba Desbloquear, sem enrolação.
+   ===================================================================== ]]
+
+-- =========================== 0) AMBIENTE =============================
+
+local GENV = (type(getgenv) == "function" and getgenv()) or _G
+local MODO_TESTE = (GENV.ARKHER_SS_TESTE ~= nil) e verdadeiro ou falso
+
+local M = {}
+M.VERSAO = "1.0"
+M.NOME = "Futebol de Rua ARKHER"
+M.JOGO = {
+  placeId = 14315258385,
+  universo = 4949420752,
+  criador = "A Legião dos Construtores",
+  maxJogadores = 8,
+  campoFutsal = verdadeiro,
+}
+M.MODO_TESTE = MODO_TESTE
+
+-- ---------------------------------------------------------------------
+-- execucao fora do Roblox (teste automático): o executor de teste manda
+-- "game", "workspace", "Enum", "task" de mentira em _G. O resto do script
+-- e o código MESMO que roda no jogo. Nada de caminho feliz de mentira.
+-- ---------------------------------------------------------------------
+funções locais = {
+  keypress = nil, keyrelease = nil, mousemoverel = nil, mousemoveabs = nil,
+  mouse1press = nil, mouse1release = nil, mouse1click = nil, mouse2press = nil,
+  mouse2release = nil, getgenv = GENV, writefile = nil, readfile = nil,
+  isfile = nil, isfolder = nil, makefolder = nil, identifyexecutor = nil,
+  protectgui = nil, setclipboard = nil, hookfunction = nil, newcclosure = nil,
+  getrawmetatable = nil, setreadonly = nil, hookmetamethod = nil,
+  getnamecallmethod = nil, checkcaller = nil, firetouchinterest = nil,
+  getconnections = nil, firesignal = nil, gethui = nil, cloneref = nil,
+  syn = nil, request = nil, http_request = nil, queue_on_teleport = nil,
 }
 
--- Mapeamento dos Remotes do Jogo
-local Remotes = {}
-local function scanRemotes()
-    local rsRemotes = ReplicatedStorage:FindFirstChild("Remotes")
-    if rsRemotes then
-        Remotes.ShootTheBall = rsRemotes:FindFirstChild("ShootTheBall") or rsRemotes:FindFirstChild("ShootTheBaII")
-        Remotes.ShootTheBaII = rsRemotes:FindFirstChild("ShootTheBaII") or Remotes.ShootTheBall
-        Remotes.Tackle = rsRemotes:FindFirstChild("Tackle")
-        Remotes.Pass = rsRemotes:FindFirstChild("Pass")
-        Remotes.Action = rsRemotes:FindFirstChild("Action")
-        Remotes.GKHitbox = rsRemotes:FindFirstChild("GKHitbox")
-        Remotes.Save = rsRemotes:FindFirstChild("Save")
-        Remotes.lancage = rsRemotes:FindFirstChild("lancage") or rsRemotes:FindFirstChild("Iancage")
-        Remotes.DailyReward = rsRemotes:FindFirstChild("DailyReward")
-        Remotes.Equip = rsRemotes:FindFirstChild("Equip")
-        Remotes.RedeemCode = ReplicatedStorage:FindFirstChild("RedeemCode")
-    end
-    local dailyEvents = ReplicatedStorage:FindFirstChild("DailyRewardEvents")
-    if dailyEvents then Remotes.ClaimReward = dailyEvents:FindFirstChild("ClaimReward") end
-end
-scanRemotes()
+função local acharFuncoes()
+  local de serviço = {
+    "keypress", "keyrelease", "mousemoverel", "mousemoveabs",
+    "mouse1press", "mouse1release", "mouse1click", "mouse2press",
+    "mouse2release", "writefile", "readfile", "isfile", "isfolder",
+    "criar pasta", "identificar executor", "proteger GUI", "definir área de transferência",
+    "hookfunction", "newcclosure", "getrawmetatable", "setreadonly",
+    "hookmetamethod", "getnamecallmethod", "checkcaller",
+    "firetouchinterest", "getconnections", "firesignal", "gethui",
+    "fila_no_teleporte",
+  }
+  para _, n em ipairs(nomes) faça
+    local f = rawget(GENV, n)
+    se type(f) == "function" então funcoes[n] = f fim
+  fim
+  para _, n em ipairs(nomes) faça
+    se funcoes[n] == nil então
+      local f = rawget(_G, n)
+      se type(f) == "function" então funcoes[n] = f fim
+    fim
+  fim
+  -- executor que se identifica (Synapse, Script-Ware, Krnl, Delta, Fluxus,
+  -- Codex, Solara, Arceus X, Hydrogen, Vega X, Appleware, Ronix...)
+  se type(GENV.identifyexecutor) == "function" então
+    pcall(function() M.EXECUTOR = GENV.identifyexecutor() end)
+  senão se type(GENV.syn) == "table" então
+    M.EXECUTOR = "Synapse"
+  senão se type(GENV.KRNL_LOADED) ~= "nil" então
+    M.EXECUTOR = "Krnl"
+  senão se type(GENV.is_sirhurt_closure) ~= "nil" então
+    M.EXECUTOR = "SirHurt"
+  senão se type(GENV.fluxus) ~= "nil" então
+    M.EXECUTOR = "Fluxus"
+  senão se type(GENV.scelerator_context) ~= "nil" então
+    M.EXECUTOR = "Onda/Delta"
+  fim
+  M.EXECUTOR = M.EXECUTOR ou "desconhecido"
+  -- sem mouse
+  se não funcoes.mouse1press e type(GENV.syn) == "table" então
+    funcoes.mouse1press = GENV.syn.mouse1press
+    funcoes.mouse1release = GENV.syn.mouse1release
+    funcoes.mousemoveabs = GENV.syn.mousemoveabs
+    funcoes.mousemoverel = GENV.syn.mousemoverel
+  fim
+  -- request (HTTP) nos vários nomes que existem por ai
+  local req = rawget(GENV, "request") ou rawget(_G, "request")
+    ou rawget(GENV, "http_request") ou rawget(_G, "http_request")
+    ou (tipo(GENV.syn) == "tabela" e GENV.syn.request) ou nulo
+  funcoes.request = (type(req) == "function") e req ou nil
+fim
+acharFunções()
 
-local function safeFireRemote(remote, ...)
-    if remote and typeof(remote) == "Instance" then
-        if remote:IsA("RemoteEvent") then
-            pcall(function(...) remote:FireServer(...) end, ...)
-        elseif remote:IsA("RemoteFunction") then
-            pcall(function(...) remote:InvokeServer(...) end, ...)
+função local httpGet(url)
+  se funcoes.request então
+    local ok, r = pcall(funcoes.request, { Url = url, Method = "GET" })
+    se ok e type(r) == "table" e r.Body então retorne r.Body fim
+    se ok e type(r) == "string" então retorne r fim
+  fim
+  local ok, r = pcall(function() return game:HttpGet(url) end)
+  se ok e type(r) == "string" então retorne r fim
+  retornar nulo
+fim
+M.httpGet = httpGet
+
+-- ---------------------------------------------------------------------
+-- serviços do Roblox (com cache e sem quebrar se faltar algum)
+-- ---------------------------------------------------------------------
+local SERV = {}
+função local serv(nome)
+  se SERV[nome] ~= nil então retorne SERV[nome] ou nil fim
+  local ok, s = pcall(function() return game:GetService(nome) end)
+  se ok e s então SERV[nome] = s senão SERV[nome] = falso fim
+  retornar SERV[nome] ou nulo
+fim
+M.serv = serv
+
+local Players = serv("Players")
+local RS = serv("ReplicatedStorage")
+local UIS = serv("UserInputService")
+local RunService = serv("RunService")
+local VIM = serv("VirtualInputManager")
+local StarterGui = serv("StarterGui")
+local ContextActionService = serv("ContextActionService")
+
+local esperar = (type(task) == "table" and type(task.wait) == "function" and task.wait)
+  ou (tipo(esperar) == "função" e esperar)
+  ou função(ões) local t = os.clock() + (para número(s) ou 0); enquanto os.clock() < t faça fim fim
+local criar = (type(task) == "table" and type(task.spawn) == "function" and task.spawn)
+  ou (tipo(spawn) == "função" e spawn)
+  ou função(f, ...) retorna f(...) fim
+local adiar = (type(task) == "table" and type(task.delay) == "function" and task.delay)
+  ou (tipo(atraso) == "função" e atraso)
+  ou função(_, f, ...) retorna f(...) fim
+local agora = os.clock
+
+M.esperar, M.criar, M.adiar = esperar, criar, adiar
+
+-- relógio do jogo em segundos (os.clock não muda ao longo do dia, usei-lo)
+função local tJogo()
+  Se type(workspace.GetServerTimeNow) == "function" então retorne workspace:GetServerTimeNow() fim
+  retornar os.time()
+fim
+
+função local avisar(título, texto, icone, tempo)
+  se MODO_TESTE então retorne fim
+  pcall(função()
+    StarterGui:SetCore("EnviarNotificação", {
+      Título = tostring(título ou M.NOME),
+      Texto = tostring(texto ou ""),
+      Ícone = ícone,
+      Duração = tempo ou 4,
+    })
+  fim)
+  se M.RAIO e M.RAIO.Notify então pcall(function() M.RAIO:Notify(tostring(título ou ""), tostring(texto ou ""), tempo ou 4) fim) fim
+  se M.LOG então print(string.format("[%s] %s — %s", M.NOME, tostring(titulo), tostring(texto))) fim
+fim
+M.avisar = ouvirr
+
+-- =========================== 1) UTILIDADES =============================
+
+local V3 = Vector3.novo
+local CF = CFrame.novo
+função local num(v, padrao) v = tonumber(v); se v == nil então retorne padrao fim retorne v fim
+função local clamp(v, a, b) se v < a então retorne a senão se v > b então retorne b fim retorne v fim
+função local round(v, casas) local m = 10 ^ (casas ou 0); retorna math.floor(v * m + 0.5) / m fim
+função local atan2(y, x)
+  Se math.atan2 então retorne math.atan2(y, x) fim
+  retornar math.atan(y, x)
+fim
+função local unpack2(t, i, j) retorna (table.unpack ou unpack)(t, i, j) fim
+função local tabelaVazia(t) retorna tipo(t) ~= "tabela" ou próximo(t) == nulo fim
+função local copiar(t) local n = {}; para k, v em pares(t) faça n[k] = v fim; retorne n fim
+função local sortear(a, b) retorna a + math.random() * (b - a) fim
+função local escolher(lista) if #lista == 0 then return nil end return lista[math.random(1, #lista)] end
+
+M.util = { num = num, clamp = clamp, round = round, atan2 = atan2, copiar = copiar }
+
+-- distancia ignorando o eixo Y (visão de campo, mais estavel para IA)
+função local distFlat(a, b)
+  local dx, dz = aX - bX, aZ - bZ
+  retornar math.sqrt(dx * dx + dz * dz)
+fim
+função local dist(a, b) retorna (a - b).Magnitude fim
+
+função local ligar(sinal, fn)
+  Se sinal == nil, retorne nil.
+  local ok, conn = pcall(function() return sinal:Connect(fn) end)
+  Se estiver tudo bem, retorne o fim da conexão.
+  ok, conn = pcall(function() return sinal.connect(sinal, fn) end)
+  Se estiver tudo bem, retorne o fim da conexão.
+  retornar nulo
+fim
+M.ligar = ligar
+
+função local quórum(conn)
+  Se conn == nil, retorne end
+  pcall(function() if conn.Disconnect then conn:Disconnect() else conn:disconnect() end end)
+fim
+
+-- =========================== 2) TECLADO/MOUSE ============================
+
+-- Toda a entrada do hub passa por aqui. Se o executor não tiver as funções
+-- nativas (celular costuma não ter), cai para o VirtualInputManager e, em
+-- último caso, para o próprio jogo (ContextActionService/Humanoid).
+local TECLA = {}
+TECLA.modo = "nativo" -- nativo | virtuais | nenhum
+
+CÓDIGOS locais = {}
+local KEYCODE_CACHE = {}
+função local tecla(nome)
+  se KEYCODE_CACHE[nome] então retorne KEYCODE_CACHE[nome] fim
+  local ok, k = pcall(function() return Enum.KeyCode[nome] end)
+  KEYCODE_CACHE[nome] = (ok e k) ou nulo
+  retornar KEYCODE_CACHE[nome]
+fim
+
+função TECLA.pressionar(nome)
+  local k = tecla(nome)
+  se não k então retorne falso fim
+  se funcoes.keypress então
+    local ok = pcall(funcoes.keypress, k)
+    Se estiver tudo bem, então TECLA.modo = "nativo"; retorne verdadeiro.
+  fim
+  se VIM então
+    local ok = pcall(function() VIM:SendKeyEvent(true, k, false, game) end)
+    Se estiver tudo bem, então TECLA.modo = "virtual"; retorne verdadeiro.
+  fim
+  TECLA.modo = "nenhum"
+  retornar falso
+fim
+
+função TECLA.soltar(nome)
+  local k = tecla(nome)
+  se não k então retorne falso fim
+  se funcoes.keyrelease então
+    local ok = pcall(funcoes.keyrelease, k)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  se VIM então
+    local ok = pcall(function() VIM:SendKeyEvent(false, k, false, game) end)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  retornar falso
+fim
+
+função TECLA.tocar(nome, segundos)
+  TECLA.pressionar(nome)
+  esperar (segundos ou 0,08)
+  TECLA.soltar(nome)
+fim
+
+-- rato ---------------------------------------------------------------
+local MOUSE = {}
+função local mouseAlvo()
+  local ok, m = pcall(function() return Players.LocalPlayer:GetMouse() end)
+  Se estiver tudo bem, retorne m.
+  retornar nulo
+fim
+M.mouse = mouseAlvo
+
+função MOUSE.segurar(botão)
+  local b = botao ou 1
+  se b == 1 e funcoes.mouse1press então
+    local ok = pcall(funcoes.mouse1press)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  se b == 2 e funcoes.mouse2press então
+    local ok = pcall(funcoes.mouse2press)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  se VIM então
+    local ok = pcall(function()
+      VIM:SendMouseButtonEvent(0, 0, b == 1 and 0 or 1, true, game, 0)
+    fim)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  -- ultimo caso: o botão real na tela do jogo (se estiver visível)
+  -- (M.ESTADO e preenchido na seção 3; aqui ainda não existe o local ESTADO)
+  se M.ESTADO então M.ESTADO.semClique = true end
+  retornar falso
+fim
+
+função MOUSE.soltar(botao)
+  local b = botao ou 1
+  se M.ESTADO então M.ESTADO.semClique = falso final
+  se b == 1 e funcoes.mouse1release então
+    local ok = pcall(funcoes.mouse1release)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  se b == 2 e funcoes.mouse2release então
+    local ok = pcall(funcoes.mouse2release)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  se VIM então
+    local ok = pcall(function()
+      VIM:SendMouseButtonEvent(0, 0, b == 1 and 0 or 1, false, game, 0)
+    fim)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  retornar falso
+fim
+
+função MOUSE.clicar(botão)
+  local ok = MOUSE.segurar(botão)
+  esperar(0,06)
+  retorne MOUSE.soltar(botao) e ok
+fim
+M.MOUSE = MOUSE
+
+-- mira por mouse/absoluto (quando o executor tem) ----------------------
+função MOUSE.moverAbs(x, y)
+  local f = funcoes.mousemoveabs
+  se f então local ok = pcall(f, x, y); se ok então retorne verdadeiro fim fim
+  se VIM então
+    local ok = pcall(function() VIM:SendMouseMoveEvent(x, y, game) end)
+    Se estiver tudo bem, retorne verdadeiro. Fim.
+  fim
+  retornar falso
+fim
+
+função MOUSE.moverRel(dx, dy)
+  local f = funcoes.mousemoverel
+  se f então local ok = pcall(f, dx, dy); se ok então retorne verdadeiro fim fim
+  retornar falso
+fim
+
+-- câmera --------------------------------------------------------------
+local CAM = {}
+CAM.guardado = nulo
+
+função local cam()
+  local w = espaço de trabalho
+  retornar w e w.CurrentCamera ou nil
+fim
+M.camera = câmera
+
+function CAM.travarOlhar(ponto)
+  local c = cam()
+  se não for c, retorne falso.
+  se não for CAM.guardado então
+    CAM.guardado = { tipo = c.CameraType, cf = c.CFrame, campo = c.FieldOfView, focus = c.Focus }
+  fim
+  -- olha para o ponto mantendo a posição (o jogo aceita: a camera e do
+  --cliente; o servidor não manda na câmera de ninguém)
+  local ok = pcall(function()
+    c.CFrame = CFrame.lookAt(c.CFrame.Position, ponto)
+  fim)
+  se não estiver ok então pcall(function() c.CFrame = CFrame.new(c.CFrame.Position, ponto) fim) fim
+  retornar verdadeiro
+fim
+
+função CAM.restaurar()
+  local c = cam()
+  se não for c ou não for CAM.guardado então retorne fim
+  pcall(função()
+    c.CameraType = CAM.guardado.tipo
+    c.CFrame = CAM.guardado.cf
+    c.FieldOfView = CAM.guardado.campo
+    c.Focus = CAM.guardado.focus
+  fim)
+  CAM.guardado = nulo
+fim
+
+-- aponta a câmera E o mouse de verdade para um ponto (usado no chute e no
+-- passe). Não teleporta nada: então olha.
+função CAM.apontar(ponto)
+  CAM.travarOlhar(ponto)
+  local c = cam()
+  se não for c, retorne fim
+  local ok, tela, visivel = pcall(function() return c:WorldToViewportPoint(ponto) end)
+  se ok e tela e visivel ~= falso então
+    MOUSE.moverAbs(math.floor(tela.X), math.floor(tela.Y))
+  fim
+fim
+M.CAM = CAM
+
+-- =========================== 3) ESTADO/CONFIG ============================
+
+CONF local = {
+  geral = {
+    ativo = true, modoLeve = true, tick = 0.10, notificar = true,
+    log = false, teclaChute = "F", hudBotao = true, hudFps = true,
+    hudStatus = true, hudOpacidade = 0.45, hudBotaoTamanho = 82,
+  },
+  rampa = {
+    auto = true, força = 1, carga = 0,42, mira = "auto", canto = "auto",
+    curvado = "auto", tentar novamente = 3, verificar = verdadeiro, distancia = 200,
+    margem = 0,35, direto = verdadeiro,
+  },
+  drible = {
+    auto = true, raio = 9, toque = 5, cooldown = 1.1, manter = true,
+    corte = verdadeiro, tecla = "Q",
+  },
+  tackle = {
+    auto = true, alcance = 6.5, bolaPerto = 9, cooldown = 0.9,
+    prever = verdadeiro, repetir = verdadeiro,
+  },
+  ações = {
+    auto = true, bicicleta = true, cabecada = true, voleio = true,
+    carrinho = falso, altura = 5, distancia = 6, cooldown = 1,4,
+    teclaCabecada = "Espaço", acao = "auto",
+  },
+  goleiro = {
+    auto = verdadeiro, defesa = verdadeiro, mergulho = verdadeiro, posicionar = verdadeiro,
+    profundidade = 7, hitbox = falso, forcar = falso, velMax = 22,
+  },
+  passe = { gk = verdadeiro, seguro = verdadeiro, força = 0,7, alcance = 70 },
+  cérebro = {
+    auto = true, nivel = "Top 1 Global", agressividade = 0,85,
+    assistir = true, sozinho = false, chuteLonge = true, voltar = true,
+  },
+  desbloquear = {
+    autoColeta = true, intervalo = 45, lerSpin = true, códigos = "",
+    cosmeticoLocal = false, autoEntrega = false,
+  },
+  antilag = {
+    auto = true, preset = "Fraco (itel/Celular antigo)",
+    sombras = verdadeiro, particulas = verdadeiro,
+    decalques = verdadeiro, luz = verdadeiro, ceu = verdadeiro, distancia = 260, física = verdadeiro,
+    partes = true, som = true, hudJogo = true, retratos = true,
+    animais = falso, malhas = verdadeiro, ui = verdadeiro,
+  },
+}
+M.CONF = CONF
+
+-- a configuração também fica no getgenv(): outros scripts do usuário leem daqui
+local ESTADO = {
+  ligado = falso,
+  bola = nulo,
+  gols = {},
+  alvo = nulo,
+  assinaturas = {}, --nome do remoto -> assinatura aprendida
+  aprendendo = {}, -- instância remota -> chave
+  ultimaAcao = "—",
+  estat = { chutes = 0, gols = 0, tackles = 0, dribles = 0, acoes = 0,
+            passes = 0, defesas = 0, falhas = 0, tentativas = 0 },
+  cd = { chute = 0, tackle = 0, drible = 0, acao = 0, passe = 0, defesa = 0 },
+  cache = { quando = 0, jogadores = {}, adversários = {}, aliados = {} },
+  erro = nulo,
+}
+M.ESTADO = ESTADO
+
+function ESTADO.marcar(quando, valor)
+  ESTADO.cd[quando] = (agora() + (valor ou 0))
+fim
+função ESTADO.livre(quando)
+  return agora() >= (ESTADO.cd[quando] ou 0)
+fim
+
+-- =========================== 4) MUNDO =============================
+
+local MUNDO = {}
+
+função local meuPersonagem()
+  local lp = Players e Players.LocalPlayer
+  Se não for lp, retorne nil.
+  local ok, ch = pcall(function() return lp.Character end)
+  Se não estiver ok ou não for ch, retorne nil. Fim.
+  retornar ch
+fim
+função local meuHumanoide()
+  local ch = minhaPersonagem()
+  se não ch então retorne nil fim
+  local ok, h = pcall(function() return ch:FindFirstChildOfClass("Humanoid") end)
+  se ok e h então retorne h fim
+  retornar nulo
+fim
+função local meuRoot()
+  local h = meuHumanoide()
+  se não h então retorne nil fim
+  local ok, r = pcall(function() return h.RootPart end)
+  se ok e r então retorne r fim
+  local ch = minhaPersonagem()
+  se ch então
+    local ok2, r2 = pcall(function() return ch:FindFirstChild("HumanoidRootPart") or ch.PrimaryPart end)
+    se ok2 então retorne r2 fim
+  fim
+  retornar nulo
+fim
+MUNDO.personagem, MUNDO.humanoide, MUNDO.root = minhaPersonagem, meuHumanoide, meuRoot
+
+função local minhaPos()
+  local r = minhaRaiz()
+  se r então retorne r.Position fim
+  local c = cam()
+  se c então retorne c.CFrame.Position fim
+  retornar nulo
+fim
+MUNDO.minhaPos = minhaPos
+
+-- ---------------------------------------------------------------------
+-- achar a bola: o detector do usuário achou Workspace.ball (pontuação 410).
+-- Aqui a busca e pela mesma lógica de pontuação, mas leve e com cache:
+-- nome, classe, tamanho, velocidade e "parece bola".
+-- ---------------------------------------------------------------------
+função local pontuarBola(o)
+  se type(o) ~= "table" e type(o) ~= "userdata" então retorne -1 fim
+  local ok, p = pcall(function()
+    local nome = string.lower(o.Name)
+    local s = 0
+    se nome == "bola" ou nome == "bola de futebol" então s = s + 300 fim
+    se string.find(nome, "bola", 1, true) ou string.find(nome, "bola", 1, true) então s = s + 140 fim
+    se o:IsA("BasePart") então
+      s = s + 40
+      local tam = o.Tamanho
+      se tam então
+        local d = (tam.X + tam.Y + tam.Z) / 3
+        Se d >= 0,5 e d <= 3,5, então s = s + 90.
+      fim
+      se o.AssemblyLinearVelocity então
+        local v = o.VelocidadeLinearDeMontagem
+        Se v.Magnitude > 0,5 então s = s + 100 fim
+      fim
+      Se o.Massless então s = s + 15 fim
+    fim
+    local pai = o.Parent
+    se pai então
+      local pn = string.lower(pai.Name)
+      se string.find(pn, "ignore", 1, true) então s = s - 250 fim
+      se string.find(pn, "goal", 1, true) então s = s - 400 fim
+      se string.find(pn, "arrow", 1, true) ou string.find(pn, "campart", 1, true) então s = s - 300 fim
+    fim
+    se o.Anchored então s = s - 60 fim
+    retornar s
+  fim)
+  Se estiver tudo bem, retorne p fim
+  retornar -1
+fim
+MUNDO.pontuarBola = pontuarBola
+
+função local acharBola()
+  -- atalho: nome exato conhecido
+  local ok, b = pcall(function() return workspace:FindFirstChild("ball") end)
+  se ok e b e b:IsA("BasePart") então retorne b fim
+  local melhor, nota = nulo, 60
+  local ok2 = pcall(function()
+    para _, o em ipairs(workspace:GetChildren()) faça
+      local s = pontuarBola(o)
+      se s > nota então melhor, nota = o, s end
+    fim
+    se não for melhor então
+      para _, o em ipairs(workspace:GetDescendants()) faça
+        local s = pontuarBola(o)
+        se s > nota então melhor, nota = o, s end
+      fim
+    fim
+  fim)
+  se ok2 então retorne melhor fim
+  retornar nulo
+fim
+MUNDO.acharBola = acharBola
+
+função MUNDO.bola()
+  -- cache de 0,25s: procurar a bola toda hora no mapa com 17k objetos pesa
+  local b = ESTADO.bola
+  se b ~= nulo então
+    local ok, pai = pcall(function() return b.Parent end)
+    se ok e pai e b:IsA("BasePart") então retorne b fim
+    ESTADO.bola = nulo
+  fim
+  local t = agora()
+  local ultima = ESTADO.cache.bolaQuando
+  se ultima e (t - ultima) < 0,25 então retorne ESTADO.bola fim
+  ESTADO.cache.bola Quando = t
+  local achada = acharBola()
+  ESTADO.bola = achada
+  retorno achada
+fim
+
+-- ---------------------------------------------------------------------
+-- Gols: HomeGoal / AwayGoal. Dentro de cada um:
+-- Frame.Crossbar / Frame.BackPost (estrutura)
+-- Alvo baixo / Alvo médio à esquerda|centro|direita / Alvos altos
+-- DeviantTargets.Target (alvo do chute curvado)
+-- ---------------------------------------------------------------------
+função local garantirGols()
+  local t = ESTADO.gols
+  local ok = pcall(function()
+    t.Home = workspace:FindFirstChild("HomeGoal")
+    t.Away = workspace:FindFirstChild("AwayGoal")
+  fim)
+  ESTADO.cache.gols = agora()
+  retornar t
+fim
+MUNDO.gols = garantirGols
+
+função local alvosDoGol(gol)
+  lista local = {}
+  se não for gol, retorne lista fim
+  pcall(função()
+    para _, pasta em ipairs(gol:GetChildren()) faça
+      local nome = string.lower(pasta.Name)
+      tipo local = "normal"
+      se string.find(nome, "deviant", 1, true) então tipo = "curvado"
+      elseif string.find(nome, "high", 1, true) then tipo = "alto"
+      elseif string.find(nome, "low", 1, true) then tipo = "baixo"
+      elseif string.find(nome, "medium", 1, true) then tipo = "medio"
+      elseif nome == "frame" then tipo = "estrutura"
+      fim
+      se tipo ~= "estrutura" então
+        for _, filho em ipairs(pasta:GetChildren()) do
+          se filho:IsA("BasePart") e string.lower(filho.Name) == "target" então
+            lista[#lista + 1] = { peca = filho, tipo = tipo, lado = string.lower(pasta.Name) }
+          elseif filho:IsA("BasePart") e tipo ~= "normal" then
+            lista[#lista + 1] = { peca = filho, tipo = tipo, lado = string.lower(pasta.Name) }
+          fim
+        fim
+      outro
+        for _, filho em ipairs(pasta:GetChildren()) do
+          se filho:IsA("BasePart") então
+            lista[#lista + 1] = { peca = filho, tipo = "estrutura", lado = string.lower(filho.Name) }
+          fim
+        fim
+      fim
+    fim
+  fim)
+  retornar lista
+fim
+MUNDO.alvosDoGol = alvosDoGol
+
+local CACHE_CENTRO = {}
+função local centroDoGol(gol)
+  Se não for gol, retorne nulo.
+  local c = CACHE_CENTRO[gol]
+  se c e (agora() - c.quando) < 2 então retorne c.pos fim
+  soma local, n = nulo, 0
+  pcall(função()
+    para _, t em ipairs(alvosDoGol(gol)) faça
+      se t.tipo ~= "estrutura" então
+        soma = soma e (soma + t.peca.Position) ou t.peca.Position
+        n = n + 1
+      fim
+    fim
+  fim)
+  resultado local
+  se n == 0 então
+    local ok, p = pcall(function() return gol:GetPivot().Position end)
+    resultado = ok e p ou nulo
+  outro
+    resultado = soma / n
+  fim
+  CACHE_CENTRO[gol] = { pos = resultado, quando = agora() }
+  retornar resultado
+fim
+MUNDO.centroDoGol = centroDoGol
+
+-- direcao "para dentro do campo" (do gol apontando para o meio do campo).
+-- Três caminhos, do mais confiável para o menos: centro do campo (metade
+-- entre os dois gols), a estrutura do próprio gol (BackPost -> Crossbar) e,
+-- por último, a posição da bola/pivo. Nunca chuta o Y: e direção de caos.
+função local normalDoGol(gol)
+  Se não for gol, retorne nulo.
+  local c = centroDoGol(gol)
+  se não c então retorne nil fim
+  gols locais = ESTADO.gols ou {}
+  local H = gols.Home e gols.Home ~= gol e centroDoGol(gols.Home)
+  local A = gols.Away e gols.Away ~= gol e centroDoGol(gols.Away)
+  local outro = H ou A
+  se outro então
+    local v = outro - c
+    v = V3(vX, 0, vZ)
+    Se v.Magnitude > 1 então retorne v.Unit fim
+  fim
+  local okF, frame = pcall(function() return gol:FindFirstChild("Frame") end)
+  se okF e quadro então
+    local back = frame:FindFirstChild("BackPost")
+    local cross = frame:FindFirstChild("Crossbar")
+    se voltar e cruzar então
+      local v = cross.Position - back.Position
+      v = V3(vX, 0, vZ)
+      Se v.Magnitude > 0.1 então retorne v.Unit fim
+    fim
+  fim
+  local bola = ESTADO.bola
+  se bola então
+    local okB, pb = pcall(function() return bola.Position end)
+    se okB e pb então
+      local v = pb - c
+      v = V3(vX, 0, vZ)
+      Se v.Magnitude > 1 então retorne v.Unit fim
+    fim
+  fim
+  local ok, base = pcall(function() return gol:GetPivot().Position end)
+  se estiver tudo bem e a base estiver correta, então
+    local v = base - c
+    v = V3(vX, 0, vZ)
+    Se v.Magnitude > 1 então retorne v.Unit fim
+  fim
+  retornar nulo
+fim
+MUNDO.normalDoGol = normalDoGol
+
+-- ---------------------------------------------------------------------
+--jogadores: separa adversário / aliado / quem tem a bola mais perto
+-- ---------------------------------------------------------------------
+função local timeDoJogador(p)
+  local ok, t = pcall(function() return p.Team end)
+  se ok e t então retorne t fim
+  retornar nulo
+fim
+
+função MUNDO.varrer(bola)
+  local eu = Jogadores e Jogadores.JogadorLocal
+  local meuTime = eu e timeDoJogador(eu) ou nil
+  local perto = { jogadores = {}, adversários = {}, aliados = {} }
+  local pos = minhaPos()
+  local ok = pcall(function()
+    para _, p em ipairs(Players:GetPlayers()) faça
+      se p ~= eu então
+        local ch = p.Character
+        raiz local = ch e (ch:FindFirstChild("HumanoidRootPart") ou ch.PrimaryPart) ou nulo
+        local hum = ch e ch:FindFirstChildOfClass("Humanoid") ou nulo
+        se root e hum e hum.Saúde > 0 então
+          local t = tempoDoJogador(p)
+          item local = {
+            jogador = p, ch = ch, raiz = raiz, hum = hum, tempo = t,
+            pos = root.Position, dist = pos e distFlat(pos, root.Position) ou 999,
+            distBola = bola e distFlat(bola.Position, root.Position) ou 999,
+            vel = root.AssemblyLinearVelocity ou V3(0, 0, 0),
+          }
+          tabela.insert(perto.jogadores, item)
+          se meuTime e t e t ~= meuTime então
+            tabela.insert(perto.adversarios, item)
+          senão se meuTime e t == meuTime então
+            tabela.insert(perto.aliados, item)
+          outro
+            table.insert(perto.adversarios, item) -- tempo indefinido: trata como adversário (defensivo)
+          fim
+        fim
+      fim
+    fim
+  fim)
+  Se não estiver tudo bem, retorne perto do fim.
+  tabela.sort(perto.jogadores, function(a, b) return a.distBola < b.distBola end)
+  tabela.sort(perto.adversarios, função(a, b) retorna a.distBola < b.distBola fim)
+  tabela.sort(perto.aliados, função(a, b) retorna a.distBola < b.distBola fim)
+  retornar perto
+fim
+
+-- quem está mais perto da bola no jogo inteiro (eu incluído)
+function MUNDO.donoDaBola(bola, perto)
+  local melhor, nota = nil, math.huge
+  for _, j em ipairs(perto.jogadores) faça
+    if j.distBola < nota então melhor, nota = j, j.distBola end
+  fim
+  local pos = minhaPos()
+  local minha = (pos e bola) e distFlat(pos, bola.Position) ou math.huge
+  if minha <= nota then return { jogador = Players.LocalPlayer, eu = true, distBola = minha } end
+  retornar melhor
+fim
+
+MUNDO.perto = tempoDoJogador
+M.MUNDO = MUNDO
+M.USAR = MUNDO
+M.TECLA = TECLA
+
+-- =========================== 5) NÚCLEO PURO ============================
+-- Tudo aqui e Lua pura: entra tabela, sai tabela. E o miolo que decide
+-- mira, força, canto, ação e o plano do anti-lag. Por ser puro, ele é
+-- TESTADO de verdade fora do Roblox (roblox/teste_streetsoccer.lua).
+
+local NUCLEO = {}
+M.NUCLEO = NUCLEO
+
+-- ---------------------------------------------------------------------
+-- 5.1) qual gol eu ataco
+-- ---------------------------------------------------------------------
+função NÚCLEO.escolherGol(o)
+  o = o ou {}
+  local g = o.gols ou {}
+  Se o.modo == "home", então retorne "Home".
+  Se o.modo == "ausente", retorne "ausente".
+  Se g.Home == nil então retorne g.Away e "Away" ou nil.
+  Se g.Away for igual a nulo, retorne "Home".
+  local eu = o.eu
+  se eu == nulo então
+    -- sem posição: usa o lado do campo onde a bola está mais perto
+    local b = o.bola
+    se b então
+      local dh = (b - g.Home).Magnitude
+      local da = (b - g.Away).Magnitude
+      retornar (da < dh) e "Fora" ou "Em casa"
+    fim
+    voltar para "Home"
+  fim
+  Se o.timeCasa == verdadeiro, então retorne "Ausente".
+  Se o.timeCasa for falso, retorne "Home".
+  local dEuH = (eu - g.Home).Magnitude
+  local dEuA = (eu - g.Away).Magnitude
+  local dBolaH = o.bola e (o.bola - g.Home).Magnitude ou 1e9
+  local dBolaA = o.bola e (o.bola - g.Away).Magnitude ou 1e9
+  --bola na boca de um gol E eu mais perto desse gol => esse gol e o MEU
+  Se dBolaH <= 22 e dEuH < dEuA, então retorne "Afastar-se".
+  se dBolaA <= 22 e dEuA < dEuH então retorne "Home" end
+  --padrao: ataco o gol mais LONGE de mim (eu defendo o que fica atras)
+  Se dEuH > dEuA, então retorne "Home" fim
+  retornar "Fora"
+fim
+
+-- ---------------------------------------------------------------------
+-- 5.2) escolher o ponto exato do chute (canto / curva / altura)
+--ctx.alvos = { {peca=parte, tipo="baixo|medio|alto|curvado|estrutura", lado=...}, ... }
+--ctx.gk = Vector3 do goleiro (ou nil)
+--ctx.eu = Vector3 de quem chuta
+--ctx.lado = "automático" | "esquerda" | "direita" | "aleatório"
+--ctx.curvado = "auto" | "curva" | "normais" | "aleatório"
+--ctx.margem = studs que eu puxo para dentro da baliza (seguro)
+--ctx.centro = centro do gol (para puxar para dentro)
+-- ---------------------------------------------------------------------
+local PESO_TIPO = {
+  baixo = 30, médio = 22, alto = 10, curvado = 26, estrutura = -1e9,
+}
+
+função NÚCLEO.escolherPonto(ctx)
+  ctx = ctx ou {}
+  local alvos = ctx.alvos ou {}
+  lista local = {}
+  local querCurva = ctx.curvado == "curva"
+  se ctx.curvado == "aleatorio" então querCurva = (math.random() < 0.5) fim
+  local permitidos = {}
+  se querCurva então
+    permitidos.curvado = true
+  senão se ctx.curvado == "normal" então
+    permitidos.baixo, permitidos.medio, permitidos.alto = verdadeiro, verdadeiro, verdadeiro
+  outro
+    -- auto: prefere curvado quando o goleiro está bem posicionado (canto
+    -- fechado da muito trabalho); senao chute normal
+    permitidos.baixo, permitidos.medio, permitidos.alto = verdadeiro, verdadeiro, verdadeiro
+    permitidos.curvado = true
+  fim
+  para i = 1, #alvos do
+    local a = alvos[i]
+    local p = a.peca
+    local ok, pos = pcall(function() return p.Position end)
+    se ok e pos e permitidos[a.tipo] então
+      altura local = 0
+      if ctx.centro então altura = math.abs(pos.Y - ctx.centro.Y) end
+      lado local = 0 -- -1 esquerda do gol / +1 direita (eixo do gol)
+      se ctx.eixo então lado = (pos - ctx.centro):Dot(ctx.eixo) > 0 e 1 ou -1 fim
+      local pertoDoGK = 0
+      se ctx.gk então pertoDoGK = (pos - ctx.gk).Magnitude fim
+      ponto local = PESO_TIPO[a.tipo] ou 0
+      ponto = ponto + pertoDoGK * 1.6 -- longe do goleiro e melhor
+      ponto = ponto - altura * 2.5 -- rasteiro e mais seguro
+      se a.tipo == "curvado" e querCurva então ponto = ponto + 25 end
+      lista[#lista + 1] = { peca = p, tipo = a.tipo, pos = pos, nota = ponto, lado = lado }
+    fim
+  fim
+  se #lista == 0 então retorne nil fim
+  -- lado preferido
+  local ladoQuer = nulo
+  if ctx.lado == "esquerda" então ladoQuer = -1
+  elseif ctx.lado == "direita" then ladoQuer = 1
+  elseif ctx.lado == "aleatorio" then ladoQuer = (math.random() < 0.5) and -1 or 1
+  senão se ctx.gk e ctx.centro então
+    -- auto com goleiro: chuta no canto oposto ao goleiro (longe dele)
+    ladoQuer = ((ctx.gk - ctx.centro):Dot(ctx.eixo or V3(1, 0, 0)) > 0) and -1 or 1
+  fim
+  se ladoQuer então
+    para _, l em ipairs(lista) faça
+      se l.lado == ladoQuer então l.nota = l.nota + 40 end
+      se l.lado == -ladoQuer então l.nota = l.nota - 8 end
+    fim
+  fim
+  tabela.sort(lista, função(a, b) retorna a.nota > b.nota fim)
+  local escolhido = lista[1]
+  --margem: puxa o ponto para DENTRO do gol (erro de rede não vira trave)
+  margem local = num(ctx.margem, 0,35)
+  ponto local = escolhido.pos
+  se ctx.centro então
+    local v = (ctx.centro - ponto)
+    local d = v.Magnitude
+    se d > 0,05 então
+      passo local = math.min(margem, d * 0,5)
+      ponto = ponto + v.Unit * passo
+    fim
+  fim
+  retornar {
+    peca = escolhido.peca, tipo = escolhido.tipo, lado = escolhido.lado,
+    ponto = ponto, bruto = escolhido.pos, nota = escolhido.nota,
+    curvado = (escolhido.tipo == "curvado"),
+  }
+fim
+
+-- ---------------------------------------------------------------------
+-- 5.3) assinatura aprendida -> argumentos corrigidos
+-- Uma ideia: o jogo dispara o remoto; nos guardamos tipos + valores.
+-- Depois trocamos o que precisa trocar, mantendo o resto IDENTICO.
+-- ---------------------------------------------------------------------
+função local tipoDe(v)
+  local t = typeof e typeof(v) ou type(v)
+  se t == "Vector3" então retorne "Vector3" fim
+  se t == "CFrame" então retorne "CFrame" fim
+  se t == "número" ou t == "string" ou t == "booleano" então retorne t fim
+  se t == "tabela" então retorne "tabela" fim
+  se t == "nil" então retorne "nil" fim
+  retornar "outro"
+fim
+NUCLEO.tipoDe = tipoDe
+
+função NÚCLEO.esquelelo(...)
+  argumentos locais = { ... }
+  local esq = {}
+  para i = 1, #args faça esq[i] = tipoDe(args[i]) fim
+  retornar esq, #args
+fim
+
+-- descobrir, na marra, qual argumento e o PONTO e qual e a FORCA
+-- amostras = { {args={...}}, ... } (do mais antigo para o mais novo)
+function NUCLEO.inferirMapa(amostras)
+  mapa local = { ponto = nulo, força = nulo, n = 0 }
+  se type(amostras) ~= "table" ou #amostras == 0 então retorne mapa fim
+  local ult = amostras[#amostras].args ou {}
+  mapa.n = #ult
+  mapa.tipos = {}
+  para i = 1, #ult do mapa.tipos[i] = tipoDe(ult[i]) fim
+  -- ponto: primeiro Vector3 cuja variação entre amostras acompanha a bola
+  se #amostras >= 2 então
+    local a, b = amostras[#amostras - 1].args ou {}, ult
+    local melhor, melhorVar = nulo, 0,05
+    para i = 1, math.min(#a, #b) faça
+      se tipoDe(a[i]) == "Vector3" e tipoDe(b[i]) == "Vector3" então
+        local d = (b[i] - a[i]).Magnitude
+        se d > melhorVar então melhor, melhorVar = i, d end
+      fim
+    fim
+    mapa.ponto = melhor
+    --força: último número que parece potência (0..1) ou número grande
+    para i = #ult, 1, -1 faça
+      se tipoDe(ult[i]) == "número" então
+        mapa.forca = i
+        quebrar
+      fim
+    fim
+  fim
+  se mapa.ponto == nil então
+    -- sem histórico: primeiro Vector3 e o ponto (padrão do jogo)
+    para i = 1, #ult faça
+      se tipoDe(ult[i]) == "Vector3" então mapa.ponto = i; interrompa fim
+    fim
+  fim
+  se mapa.forca == nil então
+    para i = 1, #ult faça
+      se tipoDe(ult[i]) == "número" então mapa.forca = i; interrompa fim
+    fim
+  fim
+  retornar mapa
+fim
+
+-- plano: { ponto = Vetor3, direção = Vetor3, força = número|nil,
+-- origem = Vector3|nil, trocarVetores = bool }
+function NUCLEO.corrigir(args, mapa, plano)
+  locais novos = {}
+  trocas locais = 0
+  mapa = mapa ou {}
+  plano = plano ou {}
+  para i = 1, #args faça
+    local v = args[i]
+    local t = tipoDe(v)
+    se t == "Vector3" e (mapa.ponto == nil ou i >= 0) então
+      local mag = v.Magnitude
+      local ehUni = (mag > 0,9 e mag < 1,1) -- vetor unitario = direcao
+      se i == mapa.ponto então
+        -- o argumento de que o próprio jogo usa como ponto: mando a mira
+        novos[i] = plano.ponto ou v
+        trocas = trocas + 1
+      elseif ehUni e plano.direcao then
+        novos[i] = plano.direcao -- direcao: aponta para o alvo
+        trocas = trocas + 1
+      elseif mapa.ponto == nil e plano.ponto então
+        novos[i] = plano.ponto
+        trocas = trocas + 1
+      outro
+        novos[i] = v
+      fim
+    senão se t == "CFrame" então
+      if mapa.ponto e i == mapa.ponto e plano.ponto e plano.origem então
+        novos[i] = CFrame.lookAt(plano.origem, plano.ponto)
+        trocas = trocas + 1
+      outro
+        novos[i] = v
+      fim
+    senão se t == "número" e plano.forca e (mapa.forca == nil ou i == mapa.forca) então
+      -- então troca número que parece potência (0..1) ou que o mapa indicado
+      se i == mapa.forca ou (v >= 0 e v <= 1) então
+        novos[i] = plano.forca
+        trocas = trocas + 1
+      outro
+        novos[i] = v
+      fim
+    outro
+      novos[i] = v
+    fim
+  fim
+  retorno novos, trocas
+fim
+
+-- ---------------------------------------------------------------------
+-- 5.4) previsão (usada pelo goleiro e pela corrida ate a bola)
+-- devolve t, ponto (quando é onde a bola passa por uma altura/plano)
+-- ---------------------------------------------------------------------
+função NUCLEO.prever(p, v, grav, alvoY, tMax, passo)
+  tMax = tMax ou 3
+  passo = passo ou 0,05
+  local t = 0
+  pp local, vv = p, v
+  enquanto t < tMax faça
+    local y = pp.Y + vv.Y * passo + 0,5 * grav * passo * passo
+    local x = pp.X + vv.X * passo
+    local z = pp.Z + vv.Z * passo
+    se alvoY e y <= alvoY então retorne t, V3(x, alvoY, z) fim
+    pp = V3(x, y, z)
+    vv = V3(vv.X, vv.Y + grav * passo, vv.Z)
+    t = t + passo
+  fim
+  Se alvoY == nulo, retorne tMax, pp fim
+  retornar t, pp
+fim
+
+-- corte lateral no plano do gol (para o goleiro saber para onde pular)
+função NUCLEO.corteNoPlano(p, v, grav, plano, centro, eixo, tMax)
+  local t, ponto = NUCLEO.prever(p, v, grav, nil, tMax ou 2,5)
+  local d = (ponto - centro)
+  alto local = dY
+  local lado = d:Dot(eixo)
+  local cruzou = falso
+  local pp, vv, tt = p, v, 0
+  local h = 0,05
+  local gg = gravidade ou -196
+  enquanto tt < (tMax ou 2,5) faça
+    -- Euler correto: y = y + vy*h + 0.5*g*h^2 (g negativo puxa para baixo)
+    local np = V3(pp.X + vv.X * h, pp.Y + vv.Y * h + 0.5 * gg * h * h, pp.Z + vv.Z * h)
+    local sinalAntes = (pp - centro):Dot(plano)
+    local sinalDepois = (np - centro):Dot(plano)
+    se sinalAntes > 0 e sinalDepois <= 0 então
+      local d2 = (np - centro)
+      -- devolve (tempo, vetor de corte, cruzou): X = deslocamento lateral
+      -- no eixo do gol, Y = altura da bola quando cruzou a linha
+      return tt, V3(d2:Dot(eixo), d2.Y, sinalDepois), verdadeiro
+    fim
+    pp, vv, tt = np, V3(vv.X, vv.Y + gg * h, vv.Z), tt + h
+  fim
+  return t, V3(lado, alto, 0), cruzou
+fim
+
+-- ---------------------------------------------------------------------
+-- 5.5) passe seguro (goleiro e jogador de linha)
+-- ---------------------------------------------------------------------
+função NÚCLEO.melhorPasse(o)
+  o = o ou {}
+  melhores locais = {}
+  local eu = o.eu
+  maxD local = num(o.alcance, 70)
+  para _, a em ipairs(o.aliados ou {}) faça
+    local p = a.pos
+    se p e eu então
+      local d = (p - eu).Magnitude
+      se d >= 3 e d <= maxD então
+        risco local = 0
+        para _, ad em ipairs(o.adversarios ou {}) faça
+          local q = ad.pos
+          se q então
+            --distancia do adversário a linha do passe (eu -> aliado)
+            local ab = p - eu
+            local t = clamp((q - eu):Dot(ab) / math.max(ab:Dot(ab), 0.001), 0, 1)
+            local proj = eu + ab * t
+            local dLinha = (q - proj).Magnitude
+            se dLinha < 6 então risco = risco + (6 - dLinha) * 6 fim
+          fim
+        fim
+        ganho local = 0
+        se o.gol então
+          ganho = ((o.gol - eu).Magnitude - (o.gol - p).Magnitude) * 1,2
+        fim
+        melhores[#melhores + 1] = { alvo = a, ponto = p, dist = d, nota = ganho - risco - d * 0,25 }
+      fim
+    fim
+  fim
+  tabela.sort(melhores, function(a, b) return a.nota > b.nota end)
+  retornar melhores[1]
+fim
+
+-- ---------------------------------------------------------------------
+-- 5.6) O CEREBRO — a decisão do "Top 1 Global"
+-- Recebe um retrato do jogo (numeros puros) e devolve a ação.
+-- Regra de ouro: se o humano está no controle, o cérebro ASSISTE;
+-- ele envelhece quando há janela clara e sempre pelo movimento/chute reais.
+-- ---------------------------------------------------------------------
+função NUCLEO.decidir(c)
+  c = c ou {}
+  if c.ativo == false then return "PARADO", { motivo = "desligado" } end
+  -- blindagem: qualquer número que faltar vira um padrão seguro (nunca
+  -- deixa o cérebro quebrado por causa de um campo nulo)
+  função local nn(v, d) local n = tonumber(v) se n == nil então retorne d fim retorne n fim
+  c.distAdversario = nn(c.distAdversario, 999)
+  c.alcanceTackle = nn(c.alcanceTackle, 6.5)
+  c.raioDrible = nn(c.raioDrible, 9)
+  c.raioPasse = nn(c.raioPasse, 11)
+  c.distBola = nn(c.distBola, 0)
+  c.alturaBola = nn(c.alturaBola, 0)
+
+  -- 1) goleiro tem lógica própria (defesa legítima: posição, pula, corta)
+  se c.ehGK então
+    se c.bolaVindo então
+      return "GKDEFESA", { ponto = c.pontoCorte, tempo = c.tempoCorte }
+    fim
+    Se c.bolaPerto e c.passeSeguro então retorne "GKPASSE", { alvo = c.passeAlvo } fim
+    se c.bolaPerto então retorne "GKCORTE", {} fim
+    return "GKPOSICIONAR", { ponto = c.pontoPoste }
+  fim
+
+  -- 2) rampa: bola no alcance, gol na mira, sem cooldown
+  se c.podeChutar e c.bolaAlcance e c.golNaMira e não c.pressaoImpossível então
+    return "CHUTAR", { canto = c.canto, curvado = c.curvado }
+  fim
+
+  -- 3) cabecada/bicicleta: bola no ar e perto
+  se c.bolaAerea e c.bolaAlcance e c.podeAcao então
+    se c.alturaBola e c.alturaBola >= 7 e c.bicicleta então retorne "BICICLETA", {} end
+    retornar "CABECADA", {}
+  fim
+
+  -- 4) tackle: adversário com a bola no meu alcance
+  se c.adversarioComBola e c.distAdversario <= c.alcanceTackle e c.podeTackle então
+    return "TACKLE", { alvo = c.adversario }
+  fim
+
+  -- 5) tenho a bola e vem pressão: drible (finta) e depois passe
+  se c.temPosse e c.distAdversario <= c.raioDrible e c.podeDriblar então
+    return "DRIBLE", { direção = c.fuga }
+  fim
+  se c.temPosse e c.distAdversario <= c.raioPasse e c.passeSeguro e c.podePassar então
+    return "PASSAR", { alvo = c.passeAlvo }
+  fim
+
+  -- 6) último homem: volta para fechar o gol em vez de dar bote
+  se c.ultimoHomem e c.adversarioComBola e c.voltar então
+    return "DEFENDER", { ponto = c.pontoDefesa }
+  fim
+
+  -- 7) correr para a bola (com previsão de encontro, sem teletransporte)
+  se c.distBola e c.distBola > 1.2 então
+    return "CORRER", { ponto = c.pontoBola, sprint = c.sprint }
+  fim
+  retornar "PARADO", {}
+fim
+
+-- ---------------------------------------------------------------------
+-- 5.7) plano do anti-lag (puro: assim descreve o que fazer)
+-- ---------------------------------------------------------------------
+PREDEFINIÇÕES locais = {
+  ["Ultra leve"] = {
+    sombras = verdadeiro, particulas = verdadeiro, decalques = verdadeiro, luz = verdadeiro, ceu = verdadeiro,
+    som = verdadeiro, física = verdadeiro, partes = verdadeiro, malhas = verdadeiro, distancia = 180,
+    hudJogo = falso, retratos = verdadeiro, animais = verdadeiro, ui = verdadeiro,
+  },
+  ["Fraco (itel/Celular antigo)"] = {
+    sombras = verdadeiro, particulas = verdadeiro, decalques = verdadeiro, luz = verdadeiro, ceu = verdadeiro,
+    som = verdadeiro, física = verdadeiro, partes = verdadeiro, malhas = falso, distancia = 240,
+    hudJogo = falso, retratos = verdadeiro, animais = falso, ui = falso,
+  },
+  ["Médio"] = {
+    sombras = verdadeiro, particulas = verdadeiro, decalques = verdadeiro, luz = falso, ceu = falso,
+    som = falso, física = falso, partes = verdadeiro, malhas = falso, distancia = 320,
+    hudJogo = falso, retratos = falso, animais = falso, ui = falso,
+  },
+  ["PC / Nível"] = {
+    sombras = falso, particulas = falso, decalques = falso, luz = falso, ceu = falso,
+    som = falso, física = falso, partes = verdadeiro, malhas = falso, distancia = 400,
+    hudJogo = falso, retratos = falso, animais = falso, ui = falso,
+  },
+}
+NUCLEO.PRESETS = PREDEFINIÇÕES
+
+função NUCLEO.planoAntilag(cfg)
+  plano local = {}
+  cfg = cfg ou {}
+  if cfg.sombras then plano[#plano + 1] = "sombras" end
+  if cfg.particulas then plano[#plano + 1] = "particulas" end
+  se cfg.decals então plano[#plano + 1] = "decals" fim
+  se cfg.luz então plano[#plano + 1] = "luz" fim
+  se cfg.ceu então plano[#plano + 1] = "ceu" fim
+  se cfg.fisica então plano[#plano + 1] = "fisica" end
+  se cfg.partes então plano[#plano + 1] = "partes" end
+  if cfg.malhas then plano[#plano + 1] = "malhas" end
+  se cfg.som então plano[#plano + 1] = "som" end
+  se cfg.hudJogo então plano[#plano + 1] = "hudJogo" fim
+  se cfg.retratos então plano[#plano + 1] = "retratos" fim
+  se cfg.animais então plano[#plano + 1] = "animais" end
+  se cfg.ui então plano[#plano + 1] = "ui" fim
+  if (cfg.distancia ou 0) > 0 then plano[#plano + 1] = "distancia" end
+  plano de retorno
+fim
+
+--peca que o anti-lag NUNCA pode tocar (seguranca do jogo)
+NUNCA local = {
+  bola = verdadeiro, bola = verdadeiro, bola de futebol = verdadeiro, alvo = verdadeiro,
+  travessão = verdadeiro, poste de fundo = verdadeiro, gol = verdadeiro, gol da casa = verdadeiro,
+  gol fora de casa = verdadeiro, humanoide = verdadeiro, cabeça = verdadeiro, torso = verdadeiro,
+  ["tronco superior"] = verdadeiro, ["tronco inferior"] = verdadeiro, ["perna esquerda"] = verdadeiro,
+  ["perna direita"] = verdadeiro, ["braço esquerdo"] = verdadeiro, ["braço direito"] = verdadeiro,
+  humanoidrootpart = verdadeiro,
+}
+função NÚCLEO.proibido(peca, classe, nomePai)
+  local n = string.lower(tostring(peca ou ""))
+  se NUNCA[n] então retorne verdadeiro fim
+  local c = string.lower(tostring(classe or ""))
+  se c == "humanoide" ou c == "acessório" ou c == "motor6d" então retorne verdadeiro fim
+  local p = string.lower(tostring(nomePai ou ""))
+  se p == "personagens" ou p == "jogadores" então retorne verdadeiro fim
+  Se string.find(n, "target", 1, true) ou string.find(n, "goal", 1, true) então retorne verdadeiro.
+  retornar falso
+fim
+
+-- ---------------------------------------------------------------------
+-- 5.8) config em texto (salvar/carregar sem depender de JSON)
+-- ---------------------------------------------------------------------
+função NUCLEO.serializar(t)
+  linhas locais = { "ARKHERSS1" }
+  função local anda(prefixo, tab)
+    local PONTO = {}
+    para k em pares(tab) faça chaves[#chaves + 1] = k fim
+    tabela.sort(chaves, função(a, b) retorna tostring(a) < tostring(b) fim)
+    para _, k em ipairs(chaves) faça
+      local v = tab[k]
+      local chave = prefixo == "" e tostring(k) ou (prefixo .. "." .. tostring(k))
+      se type(v) == "table" então
+        anda(chave, v)
+      senão se type(v) == "boolean" então
+        linhas[#linhas + 1] = chave .. "=" .. (v e "true" ou "false")
+      senão se type(v) == "número" então
+        linhas[#linhas + 1] = chave .. "=" .. tostring(v)
+      senão se type(v) == "string" então
+        linhas[#linhas + 1] = chave .. "=" .. v
+      fim
+    fim
+  fim
+  anda("", t)
+  retornar tabela.concat(linhas, "\n")
+fim
+
+function NUCLEO.carregar(texto, destino)
+  se type(texto) ~= "string" então retorne destino, 0 fim
+  linhas locais = {}
+  for l in string.gmatch(texto, "[^\n]+") do linhas[#linhas + 1] = l end
+  if linhas[1] ~= "ARKHERSS1" then return destino, 0 end
+  local n = 0
+  para i = 2, #linhas do
+    chave local, valor = string.match(linhas[i], "^([%w_%.%-]+)=(.*)$")
+    se chave então
+      partes locais = {}
+      para p em string.gmatch(chave, "[^%.]+") faça partes[#partes + 1] = p fim
+      local não = destino
+      local ok = verdadeiro
+      para j = 1, #partes - 1 faça
+        se type(no[partes[j]]) ~= "table" então ok = falso break fim
+        não = não[partes[j]]
+      fim
+      local ult = partes[#partes]
+      se estiver tudo bem e não for ~= nulo então
+        local atual = no[ult]
+        se type(atual) == "boolean" então
+          no[ult] = (valor == "true")
+          n = n + 1
+        senão se type(atual) == "número" então
+          no[ult] = tonumber(valor) ou atual
+          n = n + 1
+        senão se type(atual) == "string" então
+          no[ult] = valor
+          n = n + 1
+        fim
+      fim
+    fim
+  fim
+  retorno destino, n
+fim
+
+-- ---------------------------------------------------------------------
+-- 5.9) estatística honesta (o número que vale e o medido no seu jogo)
+-- ---------------------------------------------------------------------
+função NUCLEO.taxa(estat)
+  local t = (estat.tentativas ou 0)
+  se t <= 0 então retorne 0 fim
+  retornar math.floor(((estat.chutes or 0) / t) * 1000 + 0.5) / 10
+fim
+
+função NUCLEO.golsPorChute(estat)
+  local c = (estat.chutes ou 0)
+  se c <= 0 então retorne 0 fim
+  retornar math.floor(((estat.gols ou 0) / c) * 1000 + 0,5) / 10
+fim
+
+-- =========================== 6) MOVIMENTO (sem teleporte) ============================
+-- Regra: o hub NUNCA muda a posição do personagem na marra. Ele pede o
+-- mesmo que o jogador pede: direção de caminhada (Humanoid:MoveTo / Move),
+-- corrida (Shift) e pulo (Espaço). O servidor está andando normal.
+
+local MOVER = {}
+função local padrao(t, defs)
+  para k, v em pares(defs) faça se t[k] == nil então t[k] = v fim fim
+  retornar t
+fim
+padrão(CONF.chute, { alcance = 7, alcanceAereo = 6 })
+padrão(CONF.drible, { força = 0,55 })
+padrão(CONF.cerebro, { moverManual = true })
+
+função MOVER.manual()
+  local h = MUNDO.humanoide()
+  se h então
+    local ok, d = pcall(function() return h.MoveDirection end)
+    Se estiver tudo bem e d e d.Magnitude > 0,15 então retorne verdadeiro.
+  fim
+  se UIS então
+    local ok, ativo = pcall(function()
+      retornar UIS:IsKeyDown(Enum.KeyCode.W) ou UIS:IsKeyDown(Enum.KeyCode.A)
+        ou UIS:IsKeyDown(Enum.KeyCode.S) ou UIS:IsKeyDown(Enum.KeyCode.D)
+        ou UIS:IsKeyDown(Enum.KeyCode.Thumbstick1)
+    fim)
+    Se estiver tudo bem e ativo, retorne verdadeiro. Fim.
+  fim
+  retornar falso
+fim
+
+função MOVER.sprint(ligado)
+  se ativado então TECLA.pressionar("LeftShift") else TECLA.soltar("LeftShift") end
+fim
+
+função MOVER.pular()
+  local h = MUNDO.humanoide()
+  se não h então retorne falso fim
+  local ok = pcall(function() h.Jump = true end)
+  Se não estiver tudo bem, retorne TECLA.pressionar("Space") fim
+  retornar verdadeiro
+fim
+
+função MOVER.ir(ponto, forcar, sprint)
+  local h = MUNDO.humanoide()
+  local r = MUNDO.root()
+  se não for h ou não for r ou não for ponto então retorne falso fim
+  se MOVER.manual() e não forcar e CONF.cerebro.moverManual então
+    return false -- o humano está jogando: o cerebro assiste, não pega o controle
+  fim
+  se sprint então MOVER.sprint(verdadeiro) fim
+  local ok = pcall(function() h:MoveTo(ponto) end)
+  se não estiver tudo bem então
+    local d = ponto - r.Posição
+    d = V3(dX, 0, dZ)
+    se d.Magnitude > 0.05 então pcall(function() h:Move(d.Unit, false) fim) fim
+  fim
+  retornar verdadeiro
+fim
+
+função MOVER.parar()
+  local h = MUNDO.humanoide()
+  se h então pcall(function() h:Move(V3(0, 0, 0), false) fim) fim
+  MOVER.sprint(falso)
+fim
+
+M.MOVER = MOVER
+
+-- =========================== 7) JUIZ (o jogo contando o que aconteceu) =============================
+-- Passivo: então ESCUTA os eventos que o servidor manda para o cliente
+-- (gol, falta, penalti). Serve para estatística real e para o cérebro
+-- saber quando parar de chutar (depois do gol a bola volta ao centro).
+
+local JUIZ = {}
+função local remotaPorCaminho(caminho)
+  local atual = jogo
+  for parte in string.gmatch(caminho, "[^%.]+") faça
+    local ok, filho = pcall(function() return atual:FindFirstChild(parte) end)
+    Se não estiver tudo bem ou não for filho, retorne nulo.
+    atual = filho
+  fim
+  retornar atual
+fim
+M.remotePorCinho = remotePorCinho
+
+função JUIZ.ligar()
+  se MODO_TESTE então retorne fim
+  ESTADO.juiz = ESTADO.juiz ou { gol = 0, falta = 0, penalti = 0 }
+  local Ômega = 0
+  função local conectarRef()
+    local ref = remotePorCaminho("Workspace.Referee.RefereeMove")
+    se não for ref, retorne falso.
+    ligar(ref.OnClientEvent, function(...)
+      partes locais = {}
+      para i = 1, selecione("#", ...) faça partes[#partes + 1] = tostring(selecione(i, ...)) fim
+      local t = tabela.concat(partes, " ")
+      local j = ESTADO.juiz
+      se string.find(t, "goal") então
+        j.gol = (j.gol ou 0) + 1
+        j.ultimoGol = agora()
+        -- então entra na MINHA estatística se eu chutei nos últimos 12s
+        se ESTADO.estat e ESTADO.ultimoChute e (agora() - ESTADO.ultimoChute) <= 12 então
+          ESTADO.estat.gols = (ESTADO.estat.gols ou 0) + 1
+          j.meuGol = agora()
+          se CONF.geral.notificar então
+            avisar("GOL!", string.format("aproveitamento: %.0f%% nos chutes", NUCLEO.golsPorChute(ESTADO.estat)), nil, 3)
+          fim
+        fim
+      senão se string.find(t, "foul") então
+        j.falta = (j.falta ou 0) + 1
+        j.ultimaFalta = agora()
+      senão se string.find(t, "penalidade") então
+        j.penalti = (j.penalti ou 0) + 1
+      fim
+    fim)
+    ESTADO.juizRef = true
+    retornar verdadeiro
+  fim
+  função local conectarGui()
+    local lp = Players e Players.LocalPlayer
+    Se não for lp, retorne falso.
+    gui local = lp:FindFirstChild("PlayerGui")
+    local exc = gui e gui:FindFirstChild("Exclamação")
+    se não for exc, retorne falso.
+    local cont = 0
+    for _, filho em ipairs(exc:GetDescendants()) do
+      se filho:IsA("RemoteEvent") e filho.Name == "RefereeMove" então
+        cont = cont + 1
+        ligar(filho.OnClientEvent, function()
+          ESTADO.juiz.ultimoAviso = agora()
+        fim)
+      fim
+    fim
+    ESTADO.juiz.contadores = cont
+    ESTADO.juizGui = cont > 0
+    retornar verdadeiro
+  fim
+  função local tentar()
+    's = centro + 1
+    local okRef = ESTADO.juizRef e true ou conectarRef()
+    local okGui = ESTADO.juizGui e true ou conectarGui()
+    se não (okRef e okGui) e tentativas < 24 então
+      adiar(5, tentar) -- o mapa carrega depois: tenta de novo
+    fim
+  fim
+  tentar()
+fim
+
+JUIZ.ligar()
+M.JUIZ = JUIZ
+
+-- =========================== 8) ASSINATURAS (a inteligência do hub) ============================
+
+local ASSIN = {}
+local CONHECIDOS = {
+  --nome exato do controle remoto -> chave interna
+  ShootTheBall = "atirar",
+  Pass = "pass",
+  Tackle = "tackle",
+  Ação = "ação",
+  GKHitbox = "gk",
+  Coletar = "coletar",
+  ClaimStick = "stick",
+  RecompensaDiária = "diariamente",
+  WQuest = "missão",
+  Equipar = "equipar",
+  Jersey = "camisa",
+  Avatar = "avatar",
+  Configurações = "configurações",
+  Desempacotar = "desempacotar",
+  Agitar = "agitar",
+  Confronto = "confronto",
+  Penalidade = "penalti",
+  Posição = "posição",
+  isMobile = "é móvel",
+  notificar = "notificar",
+  cFactor = "cfactor",
+}
+local ISCAS = {
+  ShootTheBaII = true, -- "i" maiusculo: isca do anti-cheat
+  AdminBan = verdadeiro, Teleport = verdadeiro, lancage = verdadeiro, Iancage = verdadeiro,
+  tcelloc = true, cfactor = true, FPSNORE = true, PINGNORE = true,
+  Salvar = verdadeiro, CutsceneRemote = verdadeiro, PodiumCamera = verdadeiro,
+  PodiumCelebration = true, SoftDisPlayer = true,
+}
+local NOMES_IGNORADOS = {
+  -- remotes de loja/resgate/admin NAO ambos no chute automático; eles tem
+  -- modulo proprio (DESBLOQUEAR) para não dar tiro errado.
+  Compra = verdadeiro, Banimento de administrador = verdadeiro, Teletransporte = verdadeiro
+}
+
+M.REMOTES_CONHECIDOS = CONHECIDOS
+M.REMOTES_ISCA = ISCAS
+
+local MAX_AMOSTRAS = 8
+
+função ASSIN.pasta()
+  retornar RS e RS:FindFirstChild("Remotes") ou nulo
+fim
+M.ASSIN = ASSIN
+
+função ASSIN.remote(chave)
+  -- acha o RemoteEvent/RemoteFunction pela chave, evitando os de isca
+  alvo local = nulo
+  para nome, k em pares(CONHECIDOS) faça
+    se k == chave e não ISCAS[nome] então alvo = nome interromper fim
+  fim
+  Se não for alvo, retorne nulo.
+  local pasta = ASSIN.pasta()
+  local r = pasta e pasta:FindFirstChild(alvo) ou nulo
+  se não r e RS então r = RS:FindFirstChild(alvo) fim
+  se r e (r:IsA("RemoteEvent") ou r:IsA("RemoteFunction")) então retorne r, alvo fim
+  retornar nulo
+fim
+
+função ASSIN.anotar(chave, inst, args)
+  local e = ESTADO.assinaturas[chave]
+  se não e então
+    e = { chave = chave, nome = inst.Name, classe = inst.ClassName, amostras = {} }
+    ESTADO.assinaturas[chave] = e
+  fim
+  e.nome = nome da instância
+  e.classe = inst.ClassName
+  e.quando = agora()
+  e.amostras[#e.amostras + 1] = { args = args, quando = agora() }
+  while #e.amostras > MAX_AMOSTRAS do table.remove(e.amostras, 1) end
+  e.mapa = NÚCLEO.inferirMapa(e.amostras)
+  e.registros = (e.registros ou 0) + 1
+  se M.LOG então
+    tipos locais = table.concat(e.mapa.tipos ou {}, ",")
+    print(string.format("[ARKHER] assinatura %s: %s (ponto=%s força=%s)",
+      chave, tipos, tostring(e.mapa.ponto), tostring(e.mapa.forca)))
+  fim
+  retornar e
+fim
+
+-- ---------------------------------------------------------------------
+-- empacotar/desempacotar assinatura (grava no disco para não reaprender)
+-- formato: chave|classe|tipos|ponto|forca|fixos
+-- ---------------------------------------------------------------------
+função ASSIN.empacotar(e)
+  Se não for e ou não for e.chave, retorne nulo.
+  mapa local = e.mapa ou {}
+  tipos locais = table.concat(mapa.tipos ou {}, ",")
+  local perder = {}
+  ult local = e.amostras e e.amostras[#e.amostras]
+  se ult então
+    para i = 1, #ult.args faça
+      local v = ult.args[i]
+      local t = NUCLEO.tipoDe(v)
+      se i ~= mapa.forca e (t == "string" ou t == "boolean" ou (t == "number" e i ~= mapa.forca)) então
+        valor local
+        se t == "booleano" então val = v e "1" ou "0"
+        senão se t == "número" então val = tostring(v)
+        senão val = tostring(v):gsub("[|;:\n]", "_") fim
+        fixos[#fixos + 1] = i .. ":" .. string.sub(t, 1, 1) .. ":" .. val
+      fim
+    fim
+  fim
+  retornar tabela.concat({
+    e.chave, tostring(e.classe ou "RemoteEvent"), tipos,
+    tostring(mapa.ponto ou ""), tostring(mapa.forca ou ""),
+    tabela.concat(fixos, ";"),
+  }, "|")
+fim
+
+função ASSIN.desempacotar(linha)
+  local chave, classe, tipos, ponto, força, fixos = string.match(linha, "^([^|]+)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|(.*)$")
+  se não for chave, retorne nulo.
+  local e = { chave = chave, classe = classe, amostras = {}, fixos = {} }
+  listaTipos local = {}
+  se tipos e #tipos > 0 então
+    para t em string.gmatch(tipos, "[^,]+") faça listaTipos[#listaTipos + 1] = t fim
+  fim
+  e.mapa = { tipos = listaTipos, ponto = tonumber(ponto), forca = tonumber(forca), n = #listaTipos }
+  se fixos e #fixos > 0 então
+    para item em string.gmatch(fixos, "[^;]+") faça
+      local i, t, v = string.match(item, "^(%d+):([sbn]):(.*)$")
+      se eu então
+        i = paranúmero(i)
+        se t == "s" então e.fixos[i] = v
+        senão se t == "b" então e.fixos[i] = (v == "1")
+        senão e.fixos[i] = tonumber(v) ou 0 fim
+      fim
+    fim
+  fim
+  retornar e
+fim
+
+função ASSIN.arquivo()
+  retornar "ARKHER_SS_assinaturas.txt"
+fim
+
+função ASSIN.salvar()
+  se MODO_TESTE então retorna falso, "modo teste" finaliza
+  se type(funcoes.writefile) ~= "function" então retorne falso, "executor sem writefile" fim
+  linhas locais = { "ARKHERSIG1" }
+  para chave, e em pares(ESTADO.assinaturas) do
+    local l = ASSIN.empacotar(e)
+    if l then linhas[#linhas + 1] = l end
+  fim
+  local ok = pcall(funcoes.writefile, ASSIN.arquivo(), table.concat(linhas, "\n"))
+  retornar ok
+fim
+
+função ASSIN.carregar()
+  se MODO_TESTE então retorne 0 fim
+  se type(funcoes.readfile) ~= "function" então retorne 0 fim
+  local ok, texto = pcall(funcoes.readfile, ASSIN.arquivo())
+  se não estiver ok ou type(texto) ~= "string" então retorne 0 fim
+  local n = 0
+  for linha in string.gmatch(texto, "[^\n]+") faça
+    Se string.find(linha, "ARKHERSIG1") == nil então
+      local e = ASSIN.desempacotar(linha)
+      se e então
+        e.registros = 0
+        ESTADO.assinaturas[e.chave] = e
+        n = n + 1
+      fim
+    fim
+  fim
+  retornar n
+fim
+
+-- ---------------------------------------------------------------------
+-- o gancho passivo: aprender a assinatura sem chamar remotamente nenhum
+-- ---------------------------------------------------------------------
+local OBSERVADOS = {}
+
+função ASSIN.instalar()
+  se MODO_TESTE então retorna falso, "modo teste" finaliza
+  local pasta = ASSIN.pasta()
+  se for massa então
+    for _, filho em ipairs(pasta:GetChildren()) do
+      se (filho:IsA("RemoteEvent") ou filho:IsA("RemoteFunction")) então
+        chave local = CONHECIDOS[filho.Name]
+        if chave then OBSERVADOS[filho] = chave end
+        se ISCAS[filho.Nome] então OBSERVADOS[filho] = "isca:" .. filho.Nome fim
+      fim
+    fim
+    para _, nome em ipairs({ "RedeemCode", "PingSend" }) faça
+      local r = RS e RS:FindFirstChild(nome)
+      if r then OBSERVADOS[r] = "extra:" .. nome end
+    fim
+  fim
+
+  local antigo = nulo
+  se funcoes.getrawmetatable então
+    local ok, mt = pcall(funcoes.getrawmetatable, game)
+    se estiver tudo bem e então
+      antigo = rawget(mt, "__namecall")
+      se antigo então
+        função local gancho(self, ...)
+          local metodo = funcoes.getnamecallmethod e funcoes.getnamecallmethod() ou nil
+          se método == "FireServer" ou método == "InvokeServer" ou método == "fireServer" então
+            chave local = OBSERVADOS[self]
+            se chave então
+              argumentos locais = { ... }
+              se string.sub(chave, 1, 5) == "isca:" então
+                ESTADO.iscaVista = { nome = string.sub(chave, 6), quando = agora() }
+              outro
+                pcall(ASSIN.anotar, chave, self, args)
+              fim
+            fim
+          fim
+          retornar antigo(self, ...)
+        fim
+        local nova = gancho
+        se funcoes.newcclosure então
+          local okc, c = pcall(funcoes.newcclosure, gancho)
+          se okc e c então nova = c fim
+        fim
+        se funcoes.setreadonly então pcall(funcoes.setreadonly, mt, false) fim
+        local ok2 = pcall(function() mt.__namecall = nova end)
+        se funcoes.setreadonly então pcall(funcoes.setreadonly, mt, true) fim
+        se ok2 então ESTADO.gancho = "getrawmetatable" retorna true end
+        se funcoes.hookmetamethod então
+          local ok3 = pcall(funcoes.hookmetamethod, game, "__namecall", nova)
+          se ok3 então ESTADO.gancho = "hookmetamethod" retorne verdadeiro fim
+        fim
+      fim
+    fim
+  fim
+  se funcoes.hookmetamethod então
+    local ok = pcall(funcoes.hookmetamethod, game, "__namecall", function(self, ...)
+      local metodo = funcoes.getnamecallmethod e funcoes.getnamecallmethod() ou nil
+      se metodo == "FireServer" ou metodo == "InvokeServer" então
+        chave local = OBSERVADOS[self]
+        Se chave e string.sub(chave, 1, 5) ~= "isca:" então
+          pcall(ASSIN.anotar, chave, self, { ... })
+        fim
+      fim
+      retornar nulo
+    fim)
+    -- hookmetamethod exige uma função antiga por dentro; se não houver,
+    --não da para instalar com segurança: melhor não aprender do que quebra
+    se estiver ok então ESTADO.gancho = "hookmetamethod-parcial" return false, "hook parcial (sem repasse): usando modo FRAME" end
+  fim
+  return false, "executor sem gancho: o hub usa a via de mira + clique (funciona igual, sem aprender)"
+fim
+
+-- ---------------------------------------------------------------------
+-- montar os argumentos a partir da assinatura (quando você aprender)
+-- ---------------------------------------------------------------------
+função ASSIN.tem(chave)
+  local e = ESTADO.assinaturas[chave]
+  retornar (e ~= nil e e.mapa ~= nil e e.mapa.n e e.mapa.n > 0) e e ou nil
+fim
+
+function ASSIN.montar(chave, plano)
+  local e = ASSIN.tem(chave)
+  se não for e, retorne nulo.
+  tipos locais = e.mapa.tipos ou {}
+  argumentos locais = {}
+  para i = 1, e.mapa.n faça
+    local t = tipos[i]
+    se i == e.mapa.ponto e t == "Vector3" então
+      args[i] = plano.ponto
+    senão se i == e.mapa.ponto e t == "CFrame" então
+      args[i] = CFrame.lookAt(plano.origem ou plano.ponto, plano.ponto)
+    senão se i == e.mapa.forca e t == "número" então
+      args[i] = plano.forca ou 1
+    senão se t == "Vector3" então
+      args[i] = plano.direcao ou plano.ponto
+    senão se t == "número" então
+      args[i] = e.fixos e e.fixos[i] ou 0
+    senão se t == "string" então
+      args[i] = (e.fixos e e.fixos[i]) ou plano.texto ou ""
+    senão se t == "booleano" então
+      args[i] = (e.fixos e e.fixos[i])
+      se args[i] == nil então args[i] = falso fim
+    outro
+      args[i] = e.fixos e e.fixos[i] ou nulo
+    fim
+  fim
+  retornar argumentos, e
+fim
+
+function ASSIN.disparar(chave, plano)
+  se MODO_TESTE então retorne falso, "modo teste: nenhum remoto e disparado" end
+  local e = ASSIN.tem(chave)
+  se não e então retorne falso, "sem assinatura" final
+  local args = ASSIN.montar(chave, plano)
+  se não for args então retorne falso, final "sem assinatura"
+  local r = ASSIN.remote(chave)
+  se não r então retorne falso, "remoto não encontrado" fim
+  chamada local
+  se e.classe == "RemoteFunction" então
+    chamada = função() retorna r:InvokeServer(unpack2(args)) fim
+  outro
+    chamada = função() retorna r:FireServer(unpack2(args)) fim
+  fim
+  local ok, err = pcall(chamada)
+  Se estiver tudo bem, então
+    ESTADO.ultimoDisparo = { chave = chave, quando = agora(), args = args }
+    retornar verdadeiro, #args
+  fim
+  retornar falso, tostring(erro)
+fim
+M.ASSIN = ASSIN
+
+-- =========================== 9) CHUTE (a peca principal) ============================
+
+local TIRO = {}
+
+função TIRO.retrato()
+  local bola = MUNDO.bola()
+  se não for bola então retorne nulo, "sem bola na cena (espere o jogo comecar)" fim
+  raiz local = MUNDO.root()
+  Se não for raiz, retorne nulo, "sem personagem" fim
+  local gols = MUNDO.gols()
+  centro localH = MUNDO.centroDoGol(gols.Home)
+  centro localA = MUNDO.centroDoGol(gols.Away)
+  se não for centroH ou não centroA então retorne nulo, "gols não encontrados (mudou o mapa?)" end
+
+  local lp = Players.LocalPlayer
+  hora localCasa = nulo
+  local ok, t = pcall(function() return lp.Team end)
+  se estiver tudo bem e então
+    local n = string.lower(t.Name)
+    Se string.find(n, "home", 1, true) ou string.find(n, "casa", 1, true) então timeCasa = true fim
+    Se string.find(n, "away", 1, true) ou string.find(n, "visit", 1, true) então timeCasa = false fim
+  fim
+
+  nomeGol local = NUCLEO.escolherGol({
+    modo = CONF.chute.mira, gols = { Home = centroH, Fora = centroA },
+    eu = root.Position, bola = bola.Position, timeCasa = timeCasa,
+  })
+  se não for nomeGol então retorne nulo, "não deu para decidir o gol" final
+  local gol = gols[nomeGol]
+  local centro = (nomeGol == "Home") e centroH ou centroA
+  normal local = MUNDO.normalDoGol(gol) ou V3(0, 0, 1)
+  base local = V3(normal.X, 0, normal.Z)
+  Se base.Magnitude < 0,01 então base = V3(0, 0, 1) fim
+  base = base.Unidade
+  eixo local = base:Cruz(V3(0, 1, 0))
+  se eixo.Magnitude < 0,01 então eixo = V3(1, 0, 0) fim
+  eixo = eixo.Unidade
+
+  --goleiro adversário: quem está mais perto daquele gol do lado de dentro
+  local perto = MUNDO.varrer(bola)
+  local gk, melhor = nulo, math.huge
+  for _, j em ipairs(perto.jogadores) faça
+    local d = distFlat(j.pos, centro)
+    se d < melhor ed < 45 então gk, melhor = j.pos, d end
+  fim
+
+  alvos locais = MUNDO.alvosDoGol(gol)
+  local escolha = NUCLEO.escolherPonto({
+    alvos = alvos, gk = gk, eu = root.Position, centro = centro, eixo = eixo,
+    lado = CONF.chute.canto, curvado = CONF.chute.curvado, margem = CONF.chute.margem,
+  })
+  if not escolha then return nil, "nenhum alvo no gol (mapa mudou?)" end
+
+  retornar {
+    bola = bola, root = root, gol = gol, nomeGol = nomeGol, centro = centro,
+    normal = base, eixo = eixo, gk = gk, escolha = escolha,
+    ponto = escolha.ponto, curvado = escolha.curvado, tipo = escolha.tipo,
+    distBola = distFlat(root.Position, bola.Position),
+    distGol = distFlat(bola.Position, centro),
+    perto = perto,
+  }
+fim
+
+-- o que faz o chute ACERTAR: ponta de verdade, força máxima, sem TP
+função TIRO.preparar(plano)
+  local bola = plano.bola
+  local origem = bola.Position
+  direção local = plano.ponto - origem
+  se direção.Magnitude < 0,05 então direção = plano.normal fim
+  retornar {
+    ponto = plano.ponto,
+    direção = direção.Unidade,
+    origem = origem,
+    forca = CONF.chute.forca, -- 1 = carga máxima, como o usuário pediu
+    curvado = plano.curvado,
+    texto = plano.curvado e "curva" ou nulo,
+  }
+fim
+
+função TIRO.verificar(antes, bola, tentativa)
+  --conferiu de verdade: a bola saiu do lugar?
+  local ok, pos = pcall(function() return bola.Position end)
+  Se não estiver ok ou não for positivo, retorne falso.
+  local andou = (pos - antes).Magnitude
+  Se andou >= 1.2, retorne verdadeiro, andou fim
+  retornar falso, andou
+fim
+
+--executor sem clique automático? o hub avisa UMA vez, em vez de falhar
+-- calado: a mira ja esta no canto certo, falta so o toque no botao do jogo.
+função local avisarSemClique()
+  se ESTADO.semCliqueAvisado então retorne final
+  ESTADO.semCliqueAvisado = true
+  avisar("Seu executor não tem clique automático",
+    "A mira do hub já aponta para o canto escolhido: use o botao de chute do jogo (ou o botao do hub) que vai no lugar certo.",
+    nulo, 8)
+fim
+
+função TIRO.executar(op)
+  op = op ou {}
+  plano local, erro = TIRO.retrato()
+  se não plano então
+    ESTADO.ultimaAcao = "chute: " .. tostring(erro)
+    retornar falso
+  fim
+  se plano.distBola > CONF.chute.alcance então
+    ESTADO.ultimaAcao = string.format("chute: bola a %.1f studs (longe)", plano.distBola)
+    retornar falso, "longe"
+  fim
+  se plano.distGol > CONF.chute.distancia então
+    ESTADO.ultimaAcao = "chute: fora do alcance configurado"
+    retorne falso, "fora de alcance"
+  fim
+  local p = TIRO.preparar(plano)
+  ESTADO.alvo = plano.ponto
+  ESTADO.ultimoPlano = plano
+  tentativa local = math.max(1, num(CONF.chute.retry, 2))
+  local antes = plano.bola.Position
+  sucesso local, andou = falso, 0
+  para t = 1, tentativas do
+    ESTADO.estat.tentativas = (ESTADO.estat.tentativas ou 0) + 1
+    localDireto = falso
+    se CONF.chute.direto então
+      local ok = ASSIN.disparar("atirar", p)
+      direto = ok e verdadeiro ou falso
+    fim
+    se não Direto então
+      -- via de verdade: aponta a câmera, segura o clique com a carga
+      -- máximo e solto. E o mesmo gesto de quem joga no PC.
+      CAM.apontar(p.ponto)
+      fim local = agora() + math.max(0.12, num(CONF.chute.carga, 0.4))
+      MOUSE.segurar(1)
+      enquanto agora() < fim do
+        CAM.travarOlhar(p.ponto) -- acompanha o alvo durante a carga
+        esperar(0,03)
+      fim
+      MOUSE.soltar(1)
+      adiar(0,25, function() CAM.restaurar() fim)
+    fim
+    esperar(0.16)
+    sucesso, andou = TIRO.verificar(antes, plano.bola, t)
+    Se tiver sucesso, interrompa o processo.
+    esperar(0.12)
+  fim
+  ESTADO.marcar("chute", CONF.chute.pausa ou 0.25)
+  se for bem-sucedido, então
+    ESTADO.estat.chutes = (ESTADO.estat.chutes ou 0) + 1
+    ESTADO.ultimaAcao = string.format("chute %s -> %s (%.0f studs)", plano.curvado e "curvado" ou "normal",
+      plano.nomeGol, plano.distGol)
+    ESTADO.últimoChute = agora()
+    ESTADO.ultimoChutePonto = plano.ponto
+    se CONF.geral.notificar e op.avisar ~= false então
+      avisar("Chute", string.format("%s no %s · %.1f studs", plano.curvado e "Curvado" ou "Reto",
+        plano.nomeGol, plano.distGol), nil, 2)
+    fim
+    retornar verdadeiro, plano
+  fim
+  ESTADO.estat.falhas = (ESTADO.estat.falhas ou 0) + 1
+  ESTADO.ultimaAcao = "chute: a bola não saiu (tentou " .. experimentar .. "x)"
+  se ESTADO.semClique então avisarSemClique() fim
+  retornar falso, plano
+fim
+M.TIRO = TIRO
+M.TIRO_RETRATO = TIRO.retrato
+
+-- =========================== 10) AUTOS =============================
+-- Cada auto faz UMA coisa e confere se deu certo. Quem coordena e o
+-- cérebro (seção 11). Todos respeitam o cooldown para não enviar spam remotamente.
+
+local AUTOS = {}
+
+-- 10.0) AUTO SHOOT — e o mesmo laco fechado do TIRO (seção 9): mira no
+-- canto mais longe do goleiro, força máxima, confere se a bola saiu e repete.
+função AUTOS.chutar(op)
+  retornar TIRO.executar(op)
+fim
+
+-- fuga: direção que afasta do marcador e vai para o gol (usada no drible)
+função NUCLEO.fuga(o)
+  o = o ou {}
+  diretório local = V3(0, 0, 0)
+  para _, ad em ipairs(o.adversarios ou {}) faça
+    local v = o.eu - ad.pos
+    v = V3(vX, 0, vZ)
+    local m = v.Magnitude
+    Se m > 0,01 e m < 15, então
+      dir = dir + v.Unidade * ((15 - m) / 15) * 1,4
+    fim
+  fim
+  se o.gol então
+    local g = o.gol - o.eu
+    g = V3(gX, 0, gZ)
+    Se g.Magnitude > 0,01 então dir = dir + g.Unit * 0,7 fim
+  fim
+  se dir.Magnitude < 0,05 então
+    local f = o.frente ou V3(0, 0, 1)
+    dir = V3(fX, 0, fZ)
+    se dir.Magnitude <0,01 então dir = V3(0, 0, 1) fim
+  fim
+  retornar dir.Unit
+fim
+
+-- ponto de encontro com a bola (sem teletransporte: e assim previsão de caminhada)
+função NUCLEO.encontro(eu, bola, vel, tMax)
+  tMax = tMax ou 1,6
+  local melhor, melhorT = bola, tMax
+  local t = 0
+  enquanto t <= tMax faça
+    local p = bola + vel * t
+    local d = (V3(pX - eu.X, 0, pZ - eu.Z)).Magnitude
+    se d <= (8,2 * t + 1,2) então melhor, melhorT = p, t interromper fim
+    t = t + 0,1
+  fim
+  retornar melhor, melhorT
+fim
+
+-- ---------------------------------------------------------------------
+-- 10.1) AUTO DRIBLE — já vem no ponto: prende a bola, finta quando o
+-- marcador chega e sai para o lado livre (sem virar corredor do adversário)
+-- ---------------------------------------------------------------------
+função AUTOS.driblar(op)
+  op = op ou {}
+  se não ESTADO.livre("drible") então retorne falso final
+  local bola = MUNDO.bola()
+  raiz local = MUNDO.root()
+  Se não for bola ou não for raiz, retorne falso.
+  local perto = op.perto ou MUNDO.varrer(bola)
+  dir local = NUCLEO.fuga({ eu = root.Position, adversários = perto.adversarios,
+                            gol = op.gol, frente = root.CFrame.LookVector })
+  -- 1) o toque de drible do jogo (Q) — e o que engana o marcador
+  TECLA.tocar(CONF.drible.tecla, 0,05)
+  ESTADO.estat.dribles = (ESTADO.estat.dribles ou 0) + 1
+  -- 2) sai do bolso do marcador: 2 studs na direção de fuga
+  destino local = root.Position + dir * 4
+  MOVER.ir(destino, op.forcar, verdadeiro)
+  ESTADO.marcar("drible", num(CONF.drible.cooldown, 1.1))
+  ESTADO.ultimaAcao = "drible (finta)"
+  retornar verdadeiro
+fim
+
+-- ---------------------------------------------------------------------
+-- 10.2) AUTO TACKLE — configura no ponto: então entra quando o adversário
+-- REALMENTE tem a bola no alcance, e confira se ele perdeu
+-- ---------------------------------------------------------------------
+função AUTOS.tacklear(op)
+  op = op ou {}
+  se não ESTADO.livre("tackle") então retorne falso final
+  local bola = MUNDO.bola()
+  raiz local = MUNDO.root()
+  Se não for bola ou não for raiz, retorne falso.
+  local perto = op.perto ou MUNDO.varrer(bola)
+  alvo local, melhor = nil, math.huge
+  for _, j in ipairs(perto.adversarios) do
+    local d = distFlat(root.Position, j.pos)
+    se j.distBola <= num(CONF.tackle.bolaPerto, 9) e d <= num(CONF.tackle.alcance, 6.5) e d < melhor então
+      alvo, melhor = j, d
+    fim
+  fim
+  se não alvo e num(CONF.tackle.prever, 1) == 1 então
+    for _, j in ipairs(perto.adversarios) do
+      local d = distFlat(root.Position, j.pos)
+      indo local = j.pos + j.vel * 0,25
+      local dBolaPrev = distFlat(indo, bola + bola.AssemblyLinearVelocity * 0.25)
+      se dBolaPrev <= num(CONF.tackle.bolaPerto, 9) e d <= num(CONF.tackle.alcance, 6.5) + 1.5 então
+        alvo, melhor = j, d
+        quebrar
+      fim
+    fim
+  fim
+  se não for alvo, retorne falso.
+  -- aponta para o adversário (o jogo usa a direção da câmera no carrinho)
+  CAM.apontar(alvo.pos)
+  local antes = alvo.distBola
+  TECLA.tocar("E", 0.06)
+  ESTADO.estat.tackles = (ESTADO.estat.tackles ou 0) + 1
+  ESTADO.marcar("tackle", num(CONF.tackle.cooldown, 0.9))
+  ESTADO.ultimaAcao = string.format("tackle em %s (%.1f studs)", alvo.jogador e alvo.jogador.Name ou "adversario", melhor)
+  --conferiu: a bola se removeu dele?
+  se num(CONF.tackle.repetir, 1) == 1 então
+    adiar(0.22, função()
+      pcall(função()
+        local agoraBola = MUNDO.bola()
+        se agoraBola e alvo.root então
+          local d = distFlat(agoraBola.Position, alvo.root.Position)
+          se d < antes + 0.2 e CONF.tackle.auto e ESTADO.livre("tackle") então
+            TECLA.tocar("E", 0.06)
+            ESTADO.marcar("tackle", 0.5)
+          fim
+        fim
+      fim)
+    fim)
+  fim
+  retornar verdadeiro
+fim
+
+-- ---------------------------------------------------------------------
+-- 10.3) AÇÕES AUTO — bicicleta, cabecada, voleio e carrinho
+-- A bicicleta usa a ação APRENDIDA do próprio jogo quando existe
+-- (Remotos.Ação); sem assinatura, faz o gesto que o jogo converte.
+-- ---------------------------------------------------------------------
+função AUTOS.acao(tipo, op)
+  op = op ou {}
+  se não ESTADO.livre("acao") então retorne final falso
+  local bola = MUNDO.bola()
+  raiz local = MUNDO.root()
+  Se não for bola ou não for raiz, retorne falso.
+  tipo = tipo ou "auto"
+  altura local = bola.Position.Y - root.Position.Y
+  se tipo == "auto" então
+    if altura >= 7 e CONF.actions.bicicleta então tipo = "bicicleta"
+    elseif altura >= num(CONF.actions.altura, 5) e CONF.actions.cabecada then tipo = "cabecada"
+    elseif CONF.actions.voleio then tipo = "voleio"
+    senão tipo = "cabecada" fim
+  fim
+  CAM.apontar(bola.Position + bola.AssemblyLinearVelocity * 0.12)
+  se tipo == "bicicleta" então
+    local ok = falso
+    se CONF.actions.acao ~= "auto" então
+      ok = ASSIN.disparar("action", { ponto = bola.Position, texto = CONF.actions.acao })
+    fim
+    se não estiver tudo bem então
+      MOVER.pular()
+      esperar(0.10)
+      retrato local = TIRO.retrato()
+      se então
+        local p = TIRO.preparar(retrato)
+        se CONF.chute.direto então ASSIN.disparar("atirar", p) fim
+        CAM.apontar(p.ponto)
+        MOUSE.segurar(1); esperar(math.max(0.14, num(CONF.chute.carga, 0.4))); MOUSE.soltar(1)
+      fim
+      adiar(0.3, CAM.restaurar)
+    fim
+    ESTADO.ultimaAcao = "bicicleta"
+  elseif tipo == "cabecada" then
+    TECLA.tocar(num(CONF.actions.teclaCabecada, "Espaço"), 0.07)
+    ESTADO.ultimaAcao = "cabecada"
+  elseif tipo == "carrinho" then
+    MOVER.sprint(verdadeiro)
+    TECLA.tocar("E", 0.06)
+    adiar(0.4, function() MOVER.sprint(false) end)
+    ESTADO.ultimaAcao = "carrinho"
+  outro
+    -- voleio: chute curto no ar
+    MOUSE.segurar(1); esperar(0,16); MOUSE.soltar(1)
+    adiar(0.25, CAM.restaurar)
+    ESTADO.ultimaAcao = "voleio"
+  fim
+  ESTADO.estat.acoes = (ESTADO.estat.acoes ou 0) + 1
+  ESTADO.marcar("acao", num(CONF.actions.cooldown, 1.4))
+  retornar verdadeiro
+fim
+
+-- ---------------------------------------------------------------------
+-- 10.4) AUTO PASSE (goleiro e, se quiser, jogador de linha)
+-- ---------------------------------------------------------------------
+função AUTOS.passar(op)
+  op = op ou {}
+  se não ESTADO.livre("passe") então retorne final falso
+  local bola = MUNDO.bola()
+  raiz local = MUNDO.root()
+  Se não for bola ou não for raiz, retorne falso.
+  local perto = op.perto ou MUNDO.varrer(bola)
+  local gols = MUNDO.gols()
+  alvoGol local = MUNDO.centroDoGol(gols.Home)
+  local melhor = NÚCLEO.melhorPasse({
+    eu = root.Position, aliados = perto.aliados, adversários = perto.adversarios,
+    gol = op.gol ou alvoGol, alcance = num(CONF.passe.alcance, 70),
+  })
+  se não for melhor então
+    ESTADO.ultimaAcao = "passe: nenhum companheiro livre"
+    retornar falso
+  fim
+  if num(CONF.passe.seguro, 1) == 1 e melhor.nota < -12 then
+    ESTADO.ultimaAcao = "passe: companheiro marcado, segurei a bola"
+    retornar falso
+  fim
+  destino local = melhor.ponto
+  -- apontar para o companheiro e clique CURTO (no jogo, clique curto = passe)
+  CAM.apontar(destino)
+  esperar(0,03)
+  localDireto = falso
+  se CONF.chute.direto então
+    useDireto = ASSIN.disparar("pass", { ponto = destino, direção = (destino - root.Position).Unit,
+                                           origem = bola.Position, forca = num(CONF.passe.forca, 0.7) })
+  end
+  if not usouDireto then
+    MOUSE.clicar(1)
+  end
+  ESTADO.estat.passes = (ESTADO.estat.passes or 0) + 1
+  ESTADO.marcar("passe", 1.0)
+  ESTADO.ultimaAcao = "passe para " .. (melhor.alvo.jogador and melhor.alvo.jogador.Name or "companheiro")
+  adiar(0.25, CAM.restaurar)
+  return true
+end
+
+-- ---------------------------------------------------------------------
+-- 10.5) GOLEIRO — defesa legitima OP: posiciona no bissetor, corta a
+-- linha do chute, pula quando a bola chega. Nunca "adivinha" remote.
+-- ---------------------------------------------------------------------
+local GK = {}
+GK.detectado = false
+GK.motivo = "nao detectado"
+
+function GK.ehGoleiro()
+  if CONF.goleiro.forcar then GK.motivo = "marcado por voce na interface" return true end
+  local lp = Players and Players.LocalPlayer
+  if not lp then return false end
+  local pistas = {
+    pcall(function() return lp:GetAttribute("Position") end),
+    pcall(function() return lp:GetAttribute("Role") end),
+    pcall(function() return lp:GetAttribute("role") end),
+    pcall(function() return lp:GetAttribute("GK") end),
+  }
+  for _, p in ipairs(pistas) do
+    local ok, v = p[1], p[2]
+    if ok and v ~= nil then
+      local t = string.lower(tostring(v))
+      if string.find(t, "gk", 1, true) or string.find(t, "goal", 1, true) or string.find(t, "goleiro", 1, true)
+        or v == true then
+        GK.motivo = "atributo do jogo diz que voce e o goleiro"
+        return true
+      end
+    end
+  end
+  local ok, t = pcall(function() return lp.Team end)
+  if ok and t then
+    local n = string.lower(t.Name)
+    if string.find(n, "gk", 1, true) or string.find(n, "keeper", 1, true) or string.find(n, "goleiro", 1, true) then
+      GK.motivo = "seu time e o do goleiro"
+      return true
+    end
+  end
+  local ch = MUNDO.personagem()
+  if ch then
+    for _, nome in ipairs({ "GK", "Goalkeeper", "Goalie", "GuardaRede" }) do
+      if ch:FindFirstChild(nome) then GK.motivo = "marcador no personagem: " .. nome return true end
+    end
+  end
+  return false
+end
+
+local function meuGol()
+  local root = MUNDO.root()
+  local gols = MUNDO.gols()
+  local cH = MUNDO.centroDoGol(gols.Home)
+  local cA = MUNDO.centroDoGol(gols.Away)
+  if not root then return nil end
+  if not cH then return { gol = gols.Away, centro = cA } end
+  if not cA then return { gol = gols.Home, centro = cH } end
+  if distFlat(root.Position, cH) <= distFlat(root.Position, cA) then
+    return { gol = gols.Home, centro = cH, outro = cA }
+  end
+  return { gol = gols.Away, centro = cA, outro = cH }
+end
+MUNDO.meuGol = meuGol
+
+function MUNDO.larguraDoGol(gol)
+  local centro = MUNDO.centroDoGol(gol)
+  local normal = MUNDO.normalDoGol(gol)
+  if not centro or not normal then return 6 end
+  local eixo = normal:Cross(V3(0, 1, 0)).Unit
+  local maior = 0
+  for _, t in ipairs(MUNDO.alvosDoGol(gol)) do
+    local d = math.abs((t.peca.Position - centro):Dot(eixo))
+    if d > maior then maior = d end
+  end
+  return math.max(4, maior * 2)
+end
+
+function AUTOS.goleiro(op)
+  op = op or {}
+  local bola = MUNDO.bola()
+  local root = MUNDO.root()
+  if not bola or not root then return false end
+  local mg = meuGol()
+  if not mg or not mg.centro then return false end
+  local centro = mg.centro
+  local normal = MUNDO.normalDoGol(mg.gol) or V3(0, 0, 1)
+  local base = V3(normal.X, 0, normal.Z)
+  if base.Magnitude < 0.01 then base = V3(0, 0, 1) end
+  base = base.Unit
+  local eixo = base:Cross(V3(0, 1, 0)).Unit
+  local largura = MUNDO.larguraDoGol(mg.gol)
+  local vel = bola.AssemblyLinearVelocity or V3(0, 0, 0)
+  local grav = workspace.Gravity or 196
+  -- a bola vem para o meu gol?
+  local aprox = vel.Magnitude > 6 and (vel.Unit):Dot((centro - bola.Position).Unit) > 0.55
+  local dGol = distFlat(bola.Position, centro)
+  local porta = (bola.Position - centro)
+  local doLadoDoCampo = porta:Dot(base) > 0
+  local tempo, ponto, cruzou = NUCLEO.corteNoPlano(bola.Position, vel, -grav, base, centro, eixo, 2.2)
+  ESTADO.gk = ESTADO.gk or {}
+  ESTADO.gk.cruzou = cruzou
+  ESTADO.gk.tempo = cruzou and tempo or nil
+  local xCorte = ponto and ponto.X or 0
+  local larg = largura * 0.5 + 1.2
+  xCorte = clamp(xCorte, -larg, larg)
+
+  -- defesa: quando a bola vem, sai do meio e corta a linha
+  if CONF.goleiro.defesa and cruzou and tempo and tempo <= 1.5 and aprox and doLadoDoCampo and dGol < 55 then
+    local destino = centro + eixo * xCorte + base * math.min(num(CONF.goleiro.profundidade, 7) * 0.6, 4)
+    MOVER.ir(destino, op.forcar or CONF.goleiro.forcar, true)
+    ESTADO.estat.defesas = (ESTADO.estat.defesas or 0) + 1
+    ESTADO.ultimaAcao = string.format("gk: cortando em %.2fs", tempo)
+    -- bola chegando: pula (o jogo resolve a defesa pelo corpo do goleiro)
+    local dBola = (bola.Position - root.Position).Magnitude
+    if tempo <= 0.45 and dBola < 7 then
+      local certos = math.abs((root.Position - centro):Dot(eixo) - xCorte)
+      local pular = (ponto.Y and ponto.Y > 4) or certos > 2.2
+      if pular then MOVER.pular() end
+    end
+    if CONF.goleiro.hitbox then
+      -- SO com assinatura aprendida. Sem ela, nao inventa argumento.
+      ASSIN.disparar("gk", { ponto = root.Position, direcao = (bola.Position - root.Position).Unit,
+                             origem = root.Position, forca = 1 })
+    end
+    return true
+  end
+
+  -- posicionamento: no bissetor bola -> centro do gol, dentro do gol
+  if CONF.goleiro.posicionar then
+    local v = bola.Position - centro
+    v = V3(v.X, 0, v.Z)
+    local dist2 = v.Magnitude
+    if dist2 < 0.5 then v = base end
+    local dir = (dist2 > 0.5) and v.Unit or base
+    local prof = math.min(num(CONF.goleiro.profundidade, 7), math.max(2.5, dist2 * 0.25))
+    local pos = centro + dir * prof
+    local lateral = (pos - centro):Dot(eixo)
+    pos = centro + eixo * clamp(lateral, -larg, larg) + base * prof
+    if (pos - root.Position).Magnitude > 1.6 then
+      MOVER.ir(pos, op.forcar or CONF.goleiro.forcar, true)
+      ESTADO.ultimaAcao = "gk: posicionando"
+    end
+    return true
+  end
+  return false
+end
+M.GK = GK
+M.AUTOS = AUTOS
+
+-- ============================ 11) CEREBRO — o Top 1 Global ============================
+-- Ele olha o jogo, decide com o NUCLEO (puro) e executa pelos AUTOS.
+-- Voce continua jogando normal: quando voce esta no controle, o cerebro
+-- so entra com as jogadas avancadas (chute, tackle, drible, acao).
+
+local varrerBruto = MUNDO.varrer
+function MUNDO.varrer(bola)
+  local t = agora()
+  local janela = CONF.geral.modoLeve and 0.45 or 0.3
+  if ESTADO.cache.perto and (t - (ESTADO.cache.quando or 0)) <= janela then
+    return ESTADO.cache.perto
+  end
+  local r = varrerBruto(bola)
+  ESTADO.cache.perto = r
+  ESTADO.cache.quando = t
+  return r
+end
+
+local CEREBRO = {}
+CEREBRO.ativo = false
+CEREBRO.ultimo = 0
+CEREBRO.acumulado = 0
+CEREBRO.aoAtualizar = nil
+
+function CEREBRO.retrato()
+  local bola = MUNDO.bola()
+  local root = MUNDO.root()
+  if not bola or not root then return nil end
+  local eu = root.Position
+  local perto = MUNDO.varrer(bola)
+  local vel = bola.AssemblyLinearVelocity or V3(0, 0, 0)
+  local alcance = num(CONF.chute.alcance, 7)
+  local dBola = distFlat(eu, bola.Position)
+  local ad = perto.adversarios[1]
+  local temPosse = dBola <= 3.5
+  local altura = bola.Position.Y - eu.Y
+  local gk = CONF.goleiro.auto and GK.ehGoleiro() or false
+  local gols = MUNDO.gols()
+  local alvoGol = MUNDO.centroDoGol(gols[NUCLEO.escolherGol({
+    modo = CONF.chute.mira, gols = { Home = MUNDO.centroDoGol(gols.Home), Away = MUNDO.centroDoGol(gols.Away) },
+    eu = eu, bola = bola.Position,
+  }) or "Home"])
+  local distGol = alvoGol and distFlat(bola.Position, alvoGol) or 999
+  local pontoBola, tEncontro = NUCLEO.encontro(eu, bola.Position, vel, 1.4)
+  local ultimoHomem = false
+  do
+    local mg = meuGol()
+    if mg and mg.centro then
+      local dMeu = distFlat(eu, mg.centro)
+      local menor = dMeu
+      for _, j in ipairs(perto.aliados) do
+        local d = distFlat(j.pos, mg.centro)
+        if d < menor then menor = d end
+      end
+      ultimoHomem = (dMeu <= menor + 0.5) and dMeu < 45
+    end
+  end
+  local passe = nil
+  if (temPosse or gk) and (CONF.passe.gk or not gk) then
+    passe = NUCLEO.melhorPasse({ eu = eu, aliados = perto.aliados, adversarios = perto.adversarios,
+                                 gol = alvoGol, alcance = num(CONF.passe.alcance, 70) })
+  end
+  local gkInfo, pontoPoste = nil, nil
+  if gk then
+    local mg = meuGol()
+    if mg and mg.centro then
+      local normal = MUNDO.normalDoGol(mg.gol) or V3(0, 0, 1)
+      local base = V3(normal.X, 0, normal.Z)
+      if base.Magnitude < 0.01 then base = V3(0, 0, 1) end
+      base = base.Unit
+      local eixo = base:Cross(V3(0, 1, 0)).Unit
+      local grav = workspace.Gravity or 196
+      local t, ponto, cruzou = NUCLEO.corteNoPlano(bola.Position, vel, -grav, base, mg.centro, eixo, 2.2)
+      local aprox = vel.Magnitude > 6 and vel.Unit:Dot((mg.centro - bola.Position).Unit) > 0.55
+      local doLado = (bola.Position - mg.centro):Dot(base) > 0
+      gkInfo = { cruzou = cruzou, tempo = t, ponto = ponto, vindo = aprox and doLado,
+                 centro = mg.centro, base = base, eixo = eixo }
+      -- posto do goleiro: na linha, entre os postes, na profundidade escolhida
+      local lateral = clamp((bola.Position - mg.centro):Dot(eixo) * 0.35,
+        -(MUNDO.larguraDoGol(mg.gol) * 0.5), MUNDO.larguraDoGol(mg.gol) * 0.5)
+      pontoPoste = mg.centro + eixo * lateral + base * num(CONF.goleiro.profundidade, 7)
+    end
+  end
+  return {
+    ativo = CONF.geral.ativo and CONF.cerebro.auto,
+    eu = eu, bola = bola, vol = vel, distBola = dBola, perto = perto,
+    alturaBola = altura, bolaAerea = (altura > 1.6 and vel.Y > 2),
+    bolaAlcance = dBola <= alcance,
+    podeChutar = (not gk) and CONF.chute.auto and ESTADO.livre("chute"),
+    golNaMira = distGol <= num(CONF.chute.distancia, 200),
+    distGol = distGol, alvoGol = alvoGol,
+    temPosse = temPosse, distAdversario = ad and ad.dist or 999,
+    adversarioComBola = (ad ~= nil and ad.distBola <= 4.5) and not temPosse,
+    adversario = ad and ad.jogador or nil,
+    alcanceTackle = num(CONF.tackle.alcance, 6.5),
+    podeTackle = CONF.tackle.auto and ESTADO.livre("tackle"),
+    raioDrible = num(CONF.drible.raio, 9),
+    podeDriblar = CONF.drible.auto and ESTADO.livre("drible"),
+    raioPasse = num(CONF.drible.raio, 9) + 2,
+    podePassar = ESTADO.livre("passe"),
+    passeSeguro = passe ~= nil and passe.nota > -6,
+    passeAlvo = passe,
+    podeAcao = CONF.actions.auto and ESTADO.livre("acao"),
+    bicicleta = CONF.actions.bicicleta,
+    alturaCabecada = num(CONF.actions.altura, 5),
+    ultimoHomem = ultimoHomem,
+    voltar = CONF.cerebro.voltar,
+    sprint = CONF.cerebro.agressividade >= 0.7,
+    podeDriblarTecla = CONF.drible.auto,
+    fuga = NUCLEO.fuga({ eu = eu, adversarios = perto.adversarios, gol = alvoGol,
+                         frente = root.CFrame and root.CFrame.LookVector }),
+    pontoBola = pontoBola, tempoEncontro = tEncontro,
+    ehGK = gk, gkInfo = gkInfo,
+    pontoPoste = pontoPoste,
+    bolaVindo = gkInfo and gkInfo.vindo or false,
+    pontoCorte = gkInfo and gkInfo.ponto or nil,
+    tempoCorte = gkInfo and gkInfo.tempo or 9,
+    pontoDefesa = (function()
+      local mg = meuGol()
+      if not mg or not mg.centro or not bola then return eu end
+      local v = bola.Position - mg.centro
+      v = V3(v.X, 0, v.Z)
+      if v.Magnitude < 0.5 then return mg.centro end
+      return mg.centro + v.Unit * 8
+    end)(),
+  }
+end
+
+function CEREBRO.executar(acao, dados, retrato)
+  local humano = MOVER.manual()
+  local soAvancada = humano and CONF.cerebro.moverManual and CONF.cerebro.assistir
+  if acao == "CHUTAR" then
+    AUTOS.chutar({ avisar = true })
+  elseif acao == "CABECADA" or acao == "BICICLETA" then
+    AUTOS.acao(acao == "BICICLETA" and "bicicleta" or "cabecada", { perto = retrato.perto })
+  elseif acao == "TACKLE" then
+    AUTOS.tacklear({ perto = retrato.perto })
+  elseif acao == "DRIBLE" then
+    AUTOS.driblar({ perto = retrato.perto, gol = retrato.alvoGol, forcar = not soAvancada })
+  elseif acao == "PASSAR" then
+    AUTOS.passar({ perto = retrato.perto, gol = retrato.alvoGol })
+  elseif acao == "CORRER" then
+    if not soAvancada then
+      MOVER.ir(retrato.pontoBola, false, retrato.sprint)
+    end
+  elseif acao == "DEFENDER" then
+    if not soAvancada then MOVER.ir(dados.ponto, false, true) end
+  elseif acao == "GKDEFESA" or acao == "GKPOSICIONAR" then
+    AUTOS.goleiro({ perto = retrato.perto })
+  elseif acao == "GKPASSE" then
+    AUTOS.passar({ perto = retrato.perto, gol = retrato.alvoGol })
+  elseif acao == "GKCORTE" then
+    AUTOS.goleiro({ forcar = true })
+  end
+end
+
+function CEREBRO.tick()
+  if not CONF.geral.ativo then ESTADO.acaoAtual = "desligado" return end
+  -- depois de um gol o jogo volta ao centro: pausa curta evita chute no vacuo
+  if ESTADO.juiz and ESTADO.juiz.ultimoGol and (agora() - ESTADO.juiz.ultimoGol) < 3 then
+    ESTADO.acaoAtual = "comemorando/volta ao centro"
+    return
+  end
+  local ok, erro = pcall(function()
+    local retrato = CEREBRO.retrato()
+    if not retrato then ESTADO.acaoAtual = "sem jogo" return end
+    ESTADO.retrato = retrato
+    if retrato.ehGK and not ESTADO.gkAvisado then
+      ESTADO.gkAvisado = true
+      if CONF.geral.notificar then avisar("Modo goleiro", "Detectei que voce e o goleiro: " .. GK.motivo, nil, 4) end
+    end
+    local acao, dados = NUCLEO.decidir(retrato)
+    ESTADO.acaoAtual = acao
+    if retrato.ativo then CEREBRO.executar(acao, dados, retrato) end
+    if CEREBRO.aoAtualizar then pcall(CEREBRO.aoAtualizar, retrato, acao) end
+  end)
+  if not ok then
+    ESTADO.erro = tostring(erro)
+    if M.LOG then warn("[ARKHER] cerebro: " .. tostring(erro)) end
+  end
+end
+
+function CEREBRO.ligar()
+  if CEREBRO.conn or MODO_TESTE then return end
+  CEREBRO.ativo = true
+  CEREBRO.conn = ligar(RunService.Heartbeat, function(dt)
+    CEREBRO.acumulado = CEREBRO.acumulado + (dt or 0)
+    local tick = math.max(0.03, num(CONF.geral.tick, 0.1))
+    if CEREBRO.acumulado >= tick then
+      CEREBRO.acumulado = 0
+      -- roda em linha propria: o chute segura o clique por ~0,4s e nao pode
+      -- travar o Heartbeat. O "ocupado" impede dois chutes ao mesmo tempo.
+      if CEREBRO.ocupado then return end
+      CEREBRO.ocupado = true
+      criar(function()
+        pcall(CEREBRO.tick)
+        CEREBRO.ocupado = false
+      end)
+    end
+  end)
+end
+
+function CEREBRO.desligar()
+  desconectar(CEREBRO.conn)
+  CEREBRO.conn = nil
+  CEREBRO.ativo = false
+end
+
+function CEREBRO.agora()
+  -- um tick manual (usado pelo botao de chute e pelos testes)
+  CEREBRO.tick()
+end
+M.CEREBRO = CEREBRO
+
+-- ============================ 12) ANTI-LAG (para rodar liso em hardware fraco) ============================
+
+local LAG = {}
+LAG.originais = {}
+LAG.progresso = { feito = 0, total = 0 }
+LAG.centro = nil
+LAG.pendente = false
+
+local CLASSES_PARTICULA = {
+  ParticleEmitter = true, Beam = true, Trail = true, Smoke = true, Fire = true,
+  Sparkles = true, Explosion = true,
+}
+local CLASSES_LUZ = { PointLight = true, SpotLight = true, SurfaceLight = true }
+local CLASSES_CEU = {
+  Sky = true, Atmosphere = true, Clouds = true, BloomEffect = true,
+  BlurEffect = true, DepthOfFieldEffect = true, SunRaysEffect = true,
+  ColorCorrectionEffect = true, ColorGradingEffect = true, Highlight = true,
+}
+
+function LAG.centroDoCampo()
+  if LAG.centro then return LAG.centro end
+  local gols = MUNDO.gols()
+  local a = MUNDO.centroDoGol(gols.Home)
+  local b = MUNDO.centroDoGol(gols.Away)
+  if a and b then LAG.centro = (a + b) * 0.5 return LAG.centro end
+  local ok, p = pcall(function() return workspace:GetPivot().Position end)
+  LAG.centro = ok and p or V3(0, 0, 0)
+  return LAG.centro
+end
+
+function LAG.podeMexer(inst)
+  if inst == nil then return false end
+  local ok, pode = pcall(function()
+    if inst:IsA("Humanoid") or inst:IsA("Animator") or inst:IsA("Motor6D") then return false end
+    local nome = string.lower(inst.Name)
+    if NUCLEO.proibido(nome, inst.ClassName, inst.Parent and inst.Parent.Name) then return false end
+    local ch = MUNDO.personagem()
+    if ch and (inst == ch or inst:IsDescendantOf(ch)) then return false end
+    -- personagens de outros jogadores: o anti-lag nunca esconde o corpo
+    if inst:IsA("BasePart") then
+      local modelo = inst:FindFirstAncestorOfClass("Model")
+      if modelo and Players:GetPlayerFromCharacter(modelo) then return false end
+    end
+    return true
+  end)
+  return ok and pode
+end
+
+function LAG.lista()
+  if LAG.cacheLista and (agora() - (LAG.quandoLista or 0)) < 20 then return LAG.cacheLista end
+  local ok, l = pcall(function() return workspace:GetDescendants() end)
+  LAG.cacheLista = ok and l or {}
+  LAG.quandoLista = agora()
+  return LAG.cacheLista
+end
+
+-- roda uma lista fatiada, um pedaco por quadro (nao trava o aparelho fraco)
+function LAG.fatiado(lista, porQuadro, passo, aoTerminar)
+  local i = 1
+  local total = #lista
+  LAG.progresso.total = total
+  LAG.progresso.feito = 0
+  local conn
+  local function quadro()
+    local n = 0
+    while i <= total and n < porQuadro do
+      pcall(passo, lista[i], i)
+      i = i + 1
+      n = n + 1
+    end
+    LAG.progresso.feito = i - 1
+    if i > total then
+      desconectar(conn)
+      LAG.progresso.feito = total
+      if aoTerminar then pcall(aoTerminar) end
+    end
+  end
+  if RunService then
+    conn = ligar(RunService.Heartbeat, quadro)
+  end
+  if not conn then
+    -- sem RunService (teste): roda direto, mas em pcall
+    while i <= total do pcall(passo, lista[i], i) i = i + 1 end
+    if aoTerminar then pcall(aoTerminar) end
+  end
+  return conn
+end
+
+local function guardar(inst, campo, valor)
+  local o = LAG.originais[inst]
+  if not o then o = {} LAG.originais[inst] = o end
+  if o[campo] == nil then
+    local ok, atual = pcall(function() return inst[campo] end)
+    if ok then o[campo] = atual end
+  end
+  pcall(function() inst[campo] = valor end)
+end
+
+function LAG.aplicar(cfg)
+  cfg = cfg or CONF.antilag
+  local plano = NUCLEO.planoAntilag(cfg)
+  local lista = LAG.lista()
+  local centro = LAG.centroDoCampo()
+  local raio = num(cfg.distancia, 240)
+  local ch = MUNDO.personagem()
+  local L = serv("Lighting")
+  LAG.pendente = true
+  LAG.progresso.total = #lista
+  LAG.progresso.feito = 0
+
+  -- quem NAO pode ser tocado: o meu personagem, o dos outros e a estrutura
+  -- do gol (bola/alvos ja sao barrados pelo NUNCA do NUCLEO)
+  local gols = MUNDO.gols()
+  local protegidos = {}
+  for _, g in pairs(gols) do
+    if g ~= nil then
+      protegidos[g] = true
+      pcall(function()
+        for _, f in ipairs(g:GetChildren()) do
+          protegidos[f] = true
+          for _, f2 in ipairs(f:GetChildren()) do protegidos[f2] = true end
         end
+      end)
     end
-end
+  end
+  local outros = {}
+  pcall(function()
+    local lp = Players.LocalPlayer
+    for _, pl in ipairs(Players:GetPlayers()) do
+      if pl ~= lp and pl.Character then outros[pl.Character] = true end
+    end
+  end)
 
-local function getBall()
-    local ball = Workspace:FindFirstChild("ball") or Workspace:FindFirstChild("Ball")
-    if ball and ball:IsA("BasePart") then return ball end
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj:IsA("BasePart") and not obj.Anchored and (string.lower(obj.Name):find("ball") or obj.Shape == Enum.PartType.Ball) then
-            return obj
+  local CLASSES_PECA = {
+    Part = true, MeshPart = true, UnionOperation = true, WedgePart = true,
+    TrussPart = true, SpawnLocation = true, CornerWedgePart = true,
+  }
+
+  -- UMA passada so: cada objeto e olhado uma vez (celular fraco agradece)
+  LAG.fatiado(lista, 220, function(inst)
+    local classe = inst.ClassName
+    local pai = inst.Parent
+    if CLASSES_PECA[classe] then
+      if inst == ch or pai == ch then return end
+      if pai and (protegidos[pai] or (pai.Parent and protegidos[pai.Parent])) then return end
+      if pai and (outros[pai] or (pai.Parent and outros[pai.Parent])) then return end
+      local nome = inst.Name
+      if NUNCA[nome] then return end
+      if cfg.sombras and inst.CastShadow == true then guardar(inst, "CastShadow", false) end
+      if cfg.fisica or cfg.partes or cfg.malhas then
+        local ok, pos = pcall(function() return inst.Position end)
+        if ok and pos then
+          local d = (pos - centro).Magnitude
+          if cfg.fisica and d > raio and inst.Anchored == false then
+            guardar(inst, "Anchored", true)
+          end
+          if cfg.partes and d > raio then
+            guardar(inst, "LocalTransparencyModifier", 1)
+          end
+          if cfg.malhas and d > raio * 0.8 and inst.Material ~= Enum.Material.SmoothPlastic then
+            guardar(inst, "Material", Enum.Material.SmoothPlastic)
+          end
         end
+      end
+      return
     end
-    return nil
-end
-
-local function getRootPart(player)
-    player = player or LocalPlayer
-    local char = player and player.Character
-    return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
-end
-
-local function getOpponentGoal()
-    local homeGoal = Workspace:FindFirstChild("HomeGoal")
-    local awayGoal = Workspace:FindFirstChild("AwayGoal")
-    if not homeGoal and not awayGoal then return nil end
-    local root = getRootPart()
-    if root then
-        local homePos = homeGoal and (homeGoal:FindFirstChild("Frame") and homeGoal.Frame:FindFirstChild("Crossbar") and homeGoal.Frame.Crossbar.Position or homeGoal:GetPivot().Position) or Vector3.new(0,0,0)
-        local awayPos = awayGoal and (awayGoal:FindFirstChild("Frame") and awayGoal.Frame:FindFirstChild("Crossbar") and awayGoal.Frame.Crossbar.Position or awayGoal:GetPivot().Position) or Vector3.new(0,0,0)
-        local distHome = (root.Position - homePos).Magnitude
-        local distAway = (root.Position - awayPos).Magnitude
-        return distHome < distAway and awayGoal or homeGoal
+    if cfg.particulas and CLASSES_PARTICULA[classe] then
+      guardar(inst, "Enabled", false)
+      return
     end
-    return awayGoal or homeGoal
+    if cfg.decals and (classe == "Decal" or classe == "Texture") then
+      guardar(inst, "Transparency", 1)
+      return
+    end
+    if cfg.luz and CLASSES_LUZ[classe] then
+      guardar(inst, "Enabled", false)
+      return
+    end
+    if cfg.ceu and CLASSES_CEU[classe] then
+      local o = LAG.originais[inst]
+      if not o then o = {} LAG.originais[inst] = o end
+      if o.Parent == nil then o.Parent = inst.Parent end
+      pcall(function() inst.Parent = nil end)
+      return
+    end
+    if cfg.som and classe == "Sound" then
+      guardar(inst, "Playing", false)
+      guardar(inst, "Volume", 0)
+      return
+    end
+    if cfg.animais and classe == "Humanoid" then
+      local modelo = pai
+      local lp = Players.LocalPlayer
+      if modelo and not Players:GetPlayerFromCharacter(modelo) and not (lp and lp.Character == modelo) then
+        for _, obj in ipairs(modelo:GetChildren()) do
+          if obj:IsA("BasePart") then guardar(obj, "LocalTransparencyModifier", 1) end
+        end
+      end
+      return
+    end
+  end, function() LAG.pendente = false end)
+
+  -- ceu e pos-processamento moram no Lighting (lista pequena: direto)
+  if cfg.ceu or cfg.luz or (cfg.distancia or 0) > 0 then
+    local okL, descL = pcall(function() return L:GetDescendants() end)
+    if okL and descL then
+      for _, inst in ipairs(descL) do
+        local classe = inst.ClassName
+        if cfg.ceu and CLASSES_CEU[classe] then
+          local o = LAG.originais[inst]
+          if not o then o = {} LAG.originais[inst] = o end
+          if o.Parent == nil then o.Parent = inst.Parent end
+          pcall(function() inst.Parent = nil end)
+        elseif cfg.luz and CLASSES_LUZ[classe] then
+          guardar(inst, "Enabled", false)
+        end
+      end
+    end
+    if cfg.sombras and L then pcall(function() L.GlobalShadows = false end) end
+    if (cfg.distancia or 0) > 0 and L then
+      guardar(L, "FogEnd", num(cfg.distancia, 240))
+      guardar(L, "FogStart", num(cfg.distancia, 240) * 0.55)
+    end
+  end
+
+  -- som: musica e ambiente (SoundService + o que estiver no workspace)
+  if cfg.som then
+    local SS = serv("SoundService")
+    local okS, descS = pcall(function() return SS:GetDescendants() end)
+    if okS and descS then
+      for _, inst in ipairs(descS) do
+        if inst:IsA("Sound") then
+          guardar(inst, "Playing", false)
+          guardar(inst, "Volume", 0)
+        end
+      end
+    end
+  end
+
+  -- acessorios dos OUTROS jogadores (o corpo continua visivel: da para marcar)
+  if cfg.retratos then
+    local lp = Players.LocalPlayer
+    pcall(function()
+      local corpo = {
+        humanoidrootpart = true, torso = true, uppertorso = true, lowertorso = true,
+        head = true, leftleg = true, rightleg = true, leftarm = true, rightarm = true,
+        leftfoot = true, rightfoot = true, lefthand = true, righthand = true,
+      }
+      for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= lp then
+          local chp = pl.Character
+          if chp then
+            for _, obj in ipairs(chp:GetChildren()) do
+              if obj:IsA("Accessory") or obj:IsA("Accoutrement") then
+                local handle = obj:FindFirstChild("Handle")
+                if not handle and type(obj.FindFirstChildWhichIsA) == "function" then
+                  handle = obj:FindFirstChildWhichIsA("BasePart")
+                end
+                if handle and handle:IsA("BasePart") then
+                  guardar(handle, "LocalTransparencyModifier", 1)
+                  guardar(handle, "CastShadow", false)
+                end
+              elseif obj:IsA("BasePart") and not corpo[string.lower(obj.Name)] then
+                guardar(obj, "LocalTransparencyModifier", 1)
+              end
+            end
+          end
+        end
+      end
+    end)
+  end
+
+  -- ui: tira o que nao se usa (mochila, lista, topbar). O HUD do hub fica.
+  if cfg.ui and StarterGui then
+    pcall(function()
+      StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+      StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+    end)
+    pcall(function() StarterGui:SetCore("TopbarEnabled", false) end)
+  end
+  LAG.aplicado = agora()
+  return plano
 end
 
-local function calculateBestShotTarget(opponentGoal, shotStyle)
-    if not opponentGoal then return nil end
-    local crossbar = opponentGoal:FindFirstChild("Frame") and opponentGoal.Frame:FindFirstChild("Crossbar")
-    local baseCFrame = crossbar and crossbar.CFrame or opponentGoal:GetPivot()
-    local goalPos = baseCFrame.Position
-    local goalRight = baseCFrame.RightVector
-    local goalUp = baseCFrame.UpVector
+function LAG.restaurar()
+  local n = 0
+  for inst, campos in pairs(LAG.originais) do
+    for campo, valor in pairs(campos) do
+      pcall(function() inst[campo] = valor end)
+      n = n + 1
+    end
+  end
+  LAG.originais = {}
+  local L = serv("Lighting")
+  if L then pcall(function() L.GlobalShadows = true end) end
+  return n
+end
 
-    shotStyle = shotStyle or Config.AutoShoot.ShotStyle
-    if shotStyle:find("Random") then
-        local styles = {"Top Left", "Top Right", "Low Left", "Low Right", "Trivela"}
-        local chosen = styles[math.random(1, #styles)]
-        if chosen == "Top Left" then return goalPos - (goalRight * 7.5) - (goalUp * 1.5)
-        elseif chosen == "Top Right" then return goalPos + (goalRight * 7.5) - (goalUp * 1.5)
-        elseif chosen == "Low Left" then return goalPos - (goalRight * 7.8) - (goalUp * 6.5)
-        elseif chosen == "Low Right" then return goalPos + (goalRight * 7.8) - (goalUp * 6.5)
-        else return goalPos + (goalRight * 6.8) - (goalUp * 2.2) end
-    elseif shotStyle:find("Top Bins") then
-        return goalPos + (goalRight * 7.5 * (math.random() > 0.5 and 1 or -1)) - (goalUp * 1.5)
+function LAG.preset(nome)
+  local p = NUCLEO.PRESETS[nome]
+  if not p then return false end
+  for k, v in pairs(p) do CONF.antilag[k] = v end
+  CONF.antilag.preset = nome
+  LAG.aplicar(CONF.antilag)
+  return true
+end
+M.LAG = LAG
+
+-- ============================ 13) DESBLOQUEAR ============================
+-- Honestidade em primeiro lugar: o servidor checa posse. O que da para
+-- fazer DE VERDADE e chamar os remotes de resgate/coleta/sorteio do jogo
+-- (com a assinatura aprendida), ler os conteudos liberados e repetir o
+-- equipar. Gamepass real nao existe por cliente — esta escrito na aba.
+
+local DESB = {}
+DESB.registro = {}
+
+function DESB.anotar(texto, bom)
+  DESB.registro[#DESB.registro + 1] = { texto = tostring(texto), quando = agora(), bom = bom }
+  while #DESB.registro > 60 do table.remove(DESB.registro, 1) end
+  if M.LOG then print("[ARKHER/DESB] " .. tostring(texto)) end
+end
+
+local RESGATES = {
+  { caminho = "ReplicatedStorage.Remotes.Collect", chave = "collect", nome = "Coletar recompensa" },
+  { caminho = "ReplicatedStorage.Remotes.ClaimStick", chave = "stick", nome = "Reivindicar bastao" },
+  { caminho = "ReplicatedStorage.Remotes.DailyReward", chave = "daily", nome = "Premio diario" },
+  { caminho = "ReplicatedStorage.DailyRewardEvents.ClaimReward", chave = "dailyc", nome = "Resgatar diario" },
+  { caminho = "ReplicatedStorage.Remotes.WQuest", chave = "quest", nome = "Missao semanal" },
+}
+
+-- dispara com a assinatura aprendida; sem assinatura usa o padrao (sem args)
+function DESB.disparar(caminho, chave, plano)
+  if MODO_TESTE then return false, "modo teste" end
+  local r = remotePorCaminho(caminho)
+  if not r then return false, "nao encontrado" end
+  if ISCAS[r.Name] then return false, "remote de isca (nunca)" end
+  local e = chave and ASSIN.tem(chave) or nil
+  local ok, erro
+  if e then
+    ok, erro = ASSIN.disparar(chave, plano or { ponto = V3(0, 0, 0), forca = 1 })
+    if not ok then
+      -- assinatura existe mas o remote pode ter outro nome: cai no padrao
+      ok = pcall(function()
+        if r:IsA("RemoteFunction") then r:InvokeServer() else r:FireServer() end
+      end)
+    end
+  else
+    ok = pcall(function()
+      if r:IsA("RemoteFunction") then r:InvokeServer() else r:FireServer() end
+    end)
+  end
+  return ok and true or false, erro
+end
+
+function DESB.resgatarTudo()
+  if MODO_TESTE then return 0 end
+  local n = 0
+  for _, item in ipairs(RESGATES) do
+    local ok, err = DESB.disparar(item.caminho, item.chave)
+    if ok then
+      n = n + 1
+      DESB.anotar(item.nome .. " — pedido enviado", true)
     else
-        return goalPos + (goalRight * 7.2) - (goalUp * 2.0)
+      DESB.anotar(item.nome .. " — " .. tostring(err), false)
     end
+    ESTADO.desb = ESTADO.desb or { resgates = 0 }
+    ESTADO.desb.resgates = (ESTADO.desb.resgates or 0) + 1
+    esperar(0.25)          -- espaco entre pedidos: nada de rajada
+  end
+  return n
 end
 
-local function executeAutoShoot(isManualClick)
-    local ball = getBall()
-    local root = getRootPart()
-    local oppGoal = getOpponentGoal()
-    if not oppGoal then return end
-
-    local targetPos = calculateBestShotTarget(oppGoal, Config.AutoShoot.ShotStyle)
-    if not targetPos then return end
-
-    local ballPos = ball and ball.Position or (root and (root.Position + root.CFrame.LookVector * 2.5))
-    local distance = (targetPos - ballPos).Magnitude
-    local direction = (targetPos - ballPos).Unit
-
-    local elevationOffset = Vector3.new(0, math.clamp(Config.AutoShoot.Elevation + (distance * 0.055), 8, 38), 0)
-    local curveAngle = (Config.AutoShoot.CurveIntensity / 100) * 12
-    local curveVector = Vector3.new(-direction.Z * curveAngle, 0, direction.X * curveAngle)
-    local calculatedPower = math.clamp(Config.AutoShoot.ShotPower + (distance * 1.8), 240, 520)
-
-    local finalVelocity = (direction * calculatedPower) + elevationOffset + curveVector
-
-    safeFireRemote(Remotes.ShootTheBall, targetPos, calculatedPower, curveAngle)
-    safeFireRemote(Remotes.ShootTheBaII, targetPos, calculatedPower, curveAngle)
-    safeFireRemote(Remotes.Action, "Shoot", targetPos, calculatedPower)
-
-    if ball and ball:IsA("BasePart") and root and (ball.Position - root.Position).Magnitude <= 18 then
-        ball.AssemblyLinearVelocity = finalVelocity
-        ball.AssemblyAngularVelocity = Vector3.new(curveAngle * 10, 0, -curveAngle * 10)
-    end
-
-    if root and isManualClick then
-        root.CFrame = CFrame.lookAt(root.Position, Vector3.new(targetPos.X, root.Position.Y, targetPos.Z))
-    end
+-- codigos promocionais: Remotes.RedeemCode (RemoteFunction)
+function DESB.codigo(codigo)
+  if MODO_TESTE then return false, "modo teste" end
+  codigo = tostring(codigo or ""):gsub("%s", "")
+  if #codigo < 3 or #codigo > 40 then return false, "codigo invalido" end
+  local r = remotePorCaminho("ReplicatedStorage.RedeemCode") or remotePorCaminho("ReplicatedStorage.Remotes.RedeemCode")
+  if not r then return false, "RemoteFunction RedeemCode nao existe" end
+  local ok, resp = pcall(function()
+    if r:IsA("RemoteFunction") then return r:InvokeServer(codigo) end
+    return r:FireServer(codigo)
+  end)
+  DESB.codigos = DESB.codigos or {}
+  DESB.codigos[codigo] = { quando = agora(), ok = ok, resposta = tostring(resp) }
+  DESB.anotar(string.format("codigo %s: %s", codigo, ok and tostring(resp) or "falhou"), ok)
+  return ok, resp
 end
 
--- Botão Flutuante Draggable Exclusivo
-local floatingGui = Instance.new("ScreenGui")
-floatingGui.Name = "RSS_AutoShoot_Button"
-floatingGui.ResetOnSpawn = false
-floatingGui.Parent = getSafeUIContainer()
+function DESB.codigosDoTexto(texto)
+  local lista, vistos = {}, {}
+  texto = tostring(texto or "")
+  for c in string.gmatch(texto, "[%w%-_]+") do
+    local up = string.upper(c)
+    if #up >= 3 and not vistos[up] then
+      vistos[up] = true
+      lista[#lista + 1] = c
+    end
+  end
+  return lista
+end
 
-local shootButton = Instance.new("TextButton")
-shootButton.Name = "AutoShootButton"
-shootButton.Size = UDim2.new(0, Config.AntiLag.FloatingButtonScale, 0, Config.AntiLag.FloatingButtonScale)
-shootButton.Position = UDim2.new(0.85, -45, 0.65, -45)
-shootButton.BackgroundColor3 = Color3.fromRGB(0, 140, 255)
-shootButton.BackgroundTransparency = Config.AntiLag.FloatingButtonTransparency
-shootButton.Text = ""
-shootButton.Parent = floatingGui
+function DESB.codigosDoArquivo()
+  if MODO_TESTE or type(funcoes.readfile) ~= "function" then return {} end
+  local ok, texto = pcall(funcoes.readfile, "ARKHER_SS_codigos.txt")
+  if not ok or type(texto) ~= "string" then return {} end
+  return DESB.codigosDoTexto(texto)
+end
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0.5, 0)
-corner.Parent = shootButton
+function DESB.loteCodigos(texto)
+  local lista = DESB.codigosDoTexto(texto)
+  if #lista == 0 then
+    lista = DESB.codigosDoArquivo()
+  end
+  local n = 0
+  for _, c in ipairs(lista) do
+    local ok = DESB.codigo(c)
+    if ok then n = n + 1 end
+    esperar(1.1)        -- um por vez, com respiro (o jogo limita tentativas)
+  end
+  return n, #lista
+end
 
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(0, 240, 255)
-stroke.Thickness = 2.5
-stroke.Parent = shootButton
+-- leitura: SpinnerContents* (RemoteFunction, so leitura de conteudo)
+function DESB.lerSorteios(cb)
+  if MODO_TESTE then return 0 end
+  local nomes = { "SpinnerContentsCards", "SpinnerContentsDribble", "SpinnerContentsGoalie", "SpinnerContentsShoes" }
+  local n = 0
+  local resumo = {}
+  for _, nome in ipairs(nomes) do
+    local r = RS and RS:FindFirstChild(nome)
+    local rf = r and r:FindFirstChild("RemoteFunction")
+    if rf and rf:IsA("RemoteFunction") then
+      local ok, resp = pcall(function() return rf:InvokeServer() end)
+      if ok then
+        n = n + 1
+        resumo[nome] = resp
+        DESB.anotar(nome .. ": conteudo lido", true)
+        if cb then pcall(cb, nome, resp) end
+      else
+        DESB.anotar(nome .. ": sem resposta", false)
+      end
+      esperar(0.3)
+    end
+  end
+  DESB.sorteados = resumo
+  return n
+end
 
-local label = Instance.new("TextLabel")
-label.Size = UDim2.new(1, 0, 0.45, 0)
-label.Position = UDim2.new(0, 0, 0.2, 0)
-label.BackgroundTransparency = 1
-label.Text = "⚡ SHOOT"
-label.TextColor3 = Color3.fromRGB(255, 255, 255)
-label.TextScaled = true
-label.Font = Enum.Font.GothamBold
-label.Parent = shootButton
+-- loja: ShopBundleEvents (so leitura/reset quando o usuario manda)
+function DESB.loja(acao)
+  if MODO_TESTE then return false end
+  local base = remotePorCaminho("ReplicatedStorage.ShopBundleEvents")
+  if not base then return false end
+  local nome = (acao == "reset") and "ResetShop" or "ShopEvent"
+  local r = base:FindFirstChild(nome)
+  if not r then return false end
+  local ok = pcall(function() r:FireServer() end)
+  DESB.anotar("loja: " .. nome .. (ok and " ok" or " falhou"), ok)
+  return ok
+end
 
-local subLabel = Instance.new("TextLabel")
-subLabel.Size = UDim2.new(1, 0, 0.3, 0)
-subLabel.Position = UDim2.new(0, 0, 0.6, 0)
-subLabel.BackgroundTransparency = 1
-subLabel.Text = "99% GOL"
-subLabel.TextColor3 = Color3.fromRGB(0, 255, 180)
-subLabel.TextScaled = true
-subLabel.Font = Enum.Font.GothamBlack
-subLabel.Parent = shootButton
+-- equipar de novo o que voce ja equipou (usa a assinatura real do jogo)
+function DESB.repetirEquipar()
+  local e = ASSIN.tem("equip")
+  if not e then return false, "equipe algo no jogo uma vez com o hub ligado que eu aprendo" end
+  local ok, n = ASSIN.disparar("equip", { forca = 1 })
+  DESB.anotar("equipar repetido: " .. tostring(ok), ok)
+  return ok, n
+end
 
-shootButton.Activated:Connect(function()
-    executeAutoShoot(true)
-end)
+-- gamepass: o que da e o que NAO da (sem enrolacao)
+function DESB.infoProduto(id)
+  if MODO_TESTE then return false end
+  local ms = serv("MarketplaceService")
+  if not ms then return false end
+  local ok, info = pcall(function() return ms:GetProductInfo(tonumber(id), Enum.InfoType.GamePass) end)
+  if ok and info then
+    DESB.anotar(string.format("produto %s: %s (%s R$)", tostring(id), tostring(info.Name), tostring(info.PriceInRobux)), true)
+    return true, info
+  end
+  return false
+end
 
--- Arrastar no Touch e Mouse
-local dragging, dragStart, startPos
-shootButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = shootButton.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+M.DESB = DESB
+
+-- ============================ 14) HUD (a cara do hub em jogo) ============================
+-- Aqui nasce o BOTAO DE CHUTE semitransparente, EXCLUSIVO do auto shoot:
+-- ele aparece junto com a interface e chama o chute perfeito do hub.
+
+local HUD = {}
+HUD.criado = false
+HUD.quadros = 0
+HUD.ultimoFps = 0
+HUD.fps = 0
+HUD.ping = 0
+HUD.textoAcao = "—"
+
+local function paiDoGui()
+  if funcoes.gethui then
+    local ok, h = pcall(funcoes.gethui)
+    if ok and h then return h end
+  end
+  local lp = Players and Players.LocalPlayer
+  if not lp then return nil end
+  local ok, g = pcall(function() return lp:FindFirstChild("PlayerGui") end)
+  if ok and g then return g end
+  return nil
+end
+
+local function novo(classe, props, pai)
+  local ok, inst = pcall(Instance.new, classe)
+  if not ok or not inst then return nil end
+  if props then
+    for k, v in pairs(props) do pcall(function() inst[k] = v end) end
+  end
+  if pai then pcall(function() inst.Parent = pai end) end
+  return inst
+end
+M.novo = novo
+
+function HUD.criar()
+  if MODO_TESTE then return false, "modo teste" end
+  if HUD.criado then return true end
+  local pai = paiDoGui()
+  if not pai then return false, "sem PlayerGui" end
+  local sg = novo("ScreenGui", {
+    Name = "ARKHER_SS_HUD", ResetOnSpawn = false, IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 999,
+  }, pai)
+  if not sg then return false, "sem ScreenGui" end
+  if funcoes.protectgui then pcall(funcoes.protectgui, sg) end
+  HUD.gui = sg
+
+  -- painel de status (canto superior esquerdo, pequeno e translucido)
+  local painel = novo("Frame", {
+    Name = "Status", Size = UDim2.fromOffset(210, 74), Position = UDim2.fromOffset(8, 8),
+    BackgroundColor3 = Color3.fromRGB(16, 16, 20), BackgroundTransparency = 0.35,
+    BorderSizePixel = 0, Active = false, Visible = CONF.geral.hudStatus,
+  }, sg)
+  novo("UICorner", { CornerRadius = UDim.new(0, 10) }, painel)
+  local stroke = novo("UIStroke", { Color = Color3.fromRGB(70, 220, 130), Thickness = 1, Transparency = 0.4 }, painel)
+  HUD.labelFps = novo("TextLabel", {
+    Name = "Fps", BackgroundTransparency = 1, Size = UDim2.new(1, -16, 0, 18), Position = UDim2.fromOffset(8, 4),
+    Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+    TextColor3 = Color3.fromRGB(120, 240, 160), Text = "ARKHER · -- fps · -- ms",
+  }, painel)
+  HUD.labelAcao = novo("TextLabel", {
+    Name = "Acao", BackgroundTransparency = 1, Size = UDim2.new(1, -16, 0, 18), Position = UDim2.fromOffset(8, 24),
+    Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+    TextColor3 = Color3.fromRGB(235, 235, 235), Text = "acao: —",
+  }, painel)
+  HUD.labelEstat = novo("TextLabel", {
+    Name = "Estat", BackgroundTransparency = 1, Size = UDim2.new(1, -16, 0, 18), Position = UDim2.fromOffset(8, 44),
+    Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+    TextColor3 = Color3.fromRGB(200, 200, 200), Text = "0 chutes · 0 gols · 0 tackles",
+  }, painel)
+
+  -- ============ O BOTAO DE CHUTE (exclusivo do auto shoot) ============
+  local tam = num(CONF.geral.hudBotaoTamanho, 78)
+  local opac = 1 - clamp(num(CONF.geral.hudOpacidade, 0.45), 0.05, 0.95)
+  local botao = novo("TextButton", {
+    Name = "AutoShoot", Size = UDim2.fromOffset(tam, tam),
+    Position = UDim2.new(1, -(tam + 14), 1, -(tam + 30)),
+    BackgroundColor3 = Color3.fromRGB(24, 26, 32), BackgroundTransparency = opac,
+    BorderSizePixel = 0, AutoButtonColor = false, Text = "", Active = true,
+    Visible = CONF.geral.hudBotao and CONF.chute.auto,
+  }, sg)
+  novo("UICorner", { CornerRadius = UDim.new(1, 0) }, botao)
+  novo("UIStroke", { Color = Color3.fromRGB(90, 255, 160), Thickness = 2, Transparency = 0.25 }, botao)
+  HUD.botaoBola = novo("TextLabel", {
+    Name = "Bola", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0.52, 0),
+    Font = Enum.Font.GothamBold, TextSize = math.max(14, tam * 0.30),
+    TextColor3 = Color3.fromRGB(235, 255, 240), Text = "CHUTE",
+  }, botao)
+  HUD.botaoTag = novo("TextLabel", {
+    Name = "Tag", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0.3, 0),
+    Position = UDim2.new(0, 0, 0.52, 0), Font = Enum.Font.Gotham,
+    TextSize = math.max(9, tam * 0.15), TextColor3 = Color3.fromRGB(150, 255, 190),
+    Text = "AUTO · " .. CONF.geral.teclaChute,
+  }, botao)
+  HUD.botao = botao
+  HUD.painel = painel
+
+  -- arrastar com o dedo/mouse e soltar = chute
+  local arrastando, inicio, origem, mexeu = false, nil, nil, false
+  ligar(botao.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1
+      or input.UserInputType == Enum.UserInputType.MouseMovement then
+      arrastando = true
+      mexeu = false
+      inicio = input.Position
+      origem = botao.Position
+    end
+  end)
+  ligar(botao.InputChanged, function(input)
+    if arrastando and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+      local d = input.Position - inicio
+      if math.abs(d.X) > 6 or math.abs(d.Y) > 6 then mexeu = true end
+      pcall(function()
+        botao.Position = UDim2.new(origem.X.Scale, origem.X.Offset + d.X, origem.Y.Scale, origem.Y.Offset + d.Y)
+      end)
+    end
+  end)
+  ligar(botao.InputEnded, function(input)
+    if not arrastando then return end
+    arrastando = false
+    if not mexeu then HUD.chutar() end
+  end)
+
+  -- atalho de teclado (que NAO atrapalha quem digita no chat)
+  if UIS then
+    ligar(UIS.InputBegan, function(input, processado)
+      if processado then return end
+      local k = tecla(CONF.geral.teclaChute)
+      if k and input.KeyCode == k then HUD.chutar() end
+    end)
+  end
+
+  HUD.ultimoFps = agora()
+  HUD.quadros = 0
+  HUD.ligarAtualizacao()
+  HUD.criado = true
+  return true
+end
+
+function HUD.chutar()
+  if not CONF.chute.auto then
+    avisar("Auto Shoot desligado", "Ligue o Auto Shoot na aba Chute para usar este botao.", nil, 3)
+    return
+  end
+  ESTADO.ultimaAcao = "chute pelo botao"
+  criar(function()
+    local ok = AUTOS.chutar({ avisar = true, forcado = true })
+    if HUD.botaoBola then
+      HUD.botaoBola.Text = ok and "✔" or "✖"
+      adiar(0.5, function() if HUD.botaoBola then HUD.botaoBola.Text = "CHUTE" end end)
+    end
+  end)
+end
+
+function HUD.atualizarBotao()
+  if not HUD.botao then return end
+  local visivel = CONF.geral.hudBotao and CONF.chute.auto
+  pcall(function() HUD.botao.Visible = visivel end)
+  local tam = num(CONF.geral.hudBotaoTamanho, 78)
+  pcall(function() HUD.botao.Size = UDim2.fromOffset(tam, tam) end)
+  pcall(function() HUD.botao.BackgroundTransparency = 1 - clamp(num(CONF.geral.hudOpacidade, 0.45), 0.05, 0.95) end)
+  if HUD.botaoTag then pcall(function() HUD.botaoTag.Text = "AUTO · " .. CONF.geral.teclaChute end) end
+end
+
+function HUD.ligarAtualizacao()
+  if HUD.conn or MODO_TESTE then return end
+  HUD.conn = ligar(RunService.Heartbeat, function()
+    HUD.quadros = HUD.quadros + 1
+    local t = agora()
+    if (t - (HUD.ultimoFps or 0)) >= 1 then
+      HUD.fps = HUD.quadros / math.max(0.001, t - (HUD.ultimoFps or t - 1))
+      HUD.quadros = 0
+      HUD.ultimoFps = t
+      -- ping do jogo (Stats existe no cliente)
+      local st = serv("Stats")
+      if st then
+        pcall(function()
+          HUD.ping = math.floor(st.Network.ServerStatsItem["Data Ping"]:GetValue())
         end)
+      end
+      if HUD.labelFps then
+        pcall(function()
+          HUD.labelFps.Text = string.format("ARKHER · %d fps · %d ms · %s",
+            math.floor(HUD.fps + 0.5), HUD.ping, CONF.antilag.preset)
+        end)
+      end
+      if HUD.labelEstat then
+        local e = ESTADO.estat
+        pcall(function()
+          HUD.labelEstat.Text = string.format("%d chutes · %d gols · %d tackles · %.0f%%",
+            e.chutes or 0, e.gols or 0, e.tackles or 0, NUCLEO.taxa(e))
+        end)
+      end
     end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local delta = input.Position - dragStart
-        shootButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+  end)
+end
+
+function HUD.setTexto(acao)
+  HUD.textoAcao = acao
+  if HUD.labelAcao and HUD.criado then
+    local cd = ESTADO.cd or {}
+    local extra = ""
+    local faltam = (cd.chute or 0) - agora()
+    if faltam > 0 then extra = string.format(" (%.1fs)", faltam) end
+    pcall(function() HUD.labelAcao.Text = "acao: " .. tostring(acao) .. extra end)
+  end
+end
+
+function HUD.mostrar(visivel)
+  if HUD.painel then pcall(function() HUD.painel.Visible = visivel and CONF.geral.hudStatus or false end) end
+  if HUD.botao then pcall(function() HUD.botao.Visible = visivel and CONF.geral.hudBotao and CONF.chute.auto end) end
+end
+
+function HUD.destruir()
+  desconectar(HUD.conn)
+  HUD.conn = nil
+  if HUD.gui then pcall(function() HUD.gui:Destroy() end) end
+  HUD.gui, HUD.botao, HUD.labelFps, HUD.labelAcao, HUD.labelEstat = nil, nil, nil, nil, nil
+  HUD.criado = false
+end
+
+CEREBRO.aoAtualizar = function(_, acao)
+  HUD.setTexto(acao)
+end
+M.HUD = HUD
+
+-- ============================ 15) INTERFACE (10 abas) ============================
+-- Rayfield nativo. Se o executor estiver sem internet (ou o loader mudar),
+-- cai sozinho para uma interface propria COMPLETA — o hub nunca fica sem
+-- controle por causa de dependencia externa.
+
+local UI = {}
+-- as 10 abas, na ordem (o teste automatico confere esta lista)
+M.ABAS_ESPERADAS = {
+  "Visao Geral", "Chute", "Drible", "Tackle", "Acoes",
+  "Goleiro", "Passe", "Cerebro", "Desbloquear", "Anti-Lag",
+}
+UI.R = nil
+UI.janela = nil
+UI.abas = {}
+UI.controles = {}
+UI.paginas = {}
+
+local function seguro(fn, ...)
+  local ok, a, b = pcall(fn, ...)
+  if ok then return a, b end
+  return nil, tostring(a)
+end
+M.seguro = seguro
+
+function UI.carregarRayfield()
+  local urls = {
+    "https://sirius.menu/rayfield",
+    "https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.lua",
+    "https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/main/source.luau",
+  }
+  local src = nil
+  for _, u in ipairs(urls) do
+    local s = httpGet(u)
+    if type(s) == "string" and #s > 500 then src = s break end
+  end
+  if not src then return nil, "sem resposta do servidor do Rayfield" end
+  local carregador = loadstring or load
+  local f, err = carregador(src)
+  if not f then return nil, "loadstring falhou: " .. tostring(err) end
+  local ok, R = pcall(f)
+  if ok and type(R) == "table" and (R.CreateWindow or R.Window) then return R end
+  if ok and type(R) == "table" then return R end
+  return nil, "Rayfield nao devolveu a tabela"
+end
+
+-- -------------------- ajudantes que toleram versao diferente --------------------
+local function aba(nome)
+  if not UI.janela then return nil end
+  local t = seguro(function() return UI.janela:CreateTab(nome) end)
+  if t then UI.abas[#UI.abas + 1] = { nome = nome, obj = t } end
+  return t
+end
+local function secao(tab, nome)
+  if not tab then return nil end
+  return seguro(function() return tab:CreateSection(nome) end)
+end
+local function rotulo(tab, texto, cor, negrito)
+  if not tab then return nil end
+  return seguro(function()
+    return tab:CreateLabel(texto, 13, cor or Color3.fromRGB(200, 200, 200), negrito)
+  end)
+end
+local function divider(tab)
+  if not tab then return nil end
+  return seguro(function() return tab:CreateDivider() end)
+end
+local function paragrafo(tab, titulo, conteudo)
+  if not tab then return nil end
+  return seguro(function() return tab:CreateParagraph({ Title = titulo, Content = conteudo }) end)
+end
+local function alterar(flag, valor, tipo)
+  UI.controles[#UI.controles + 1] = { flag = flag, valor = valor, tipo = tipo or "outro" }
+end
+local function toggle(tab, nome, atual, flag, cb)
+  if not tab then return nil end
+  alterar(flag, atual, "toggle")
+  return seguro(function()
+    return tab:CreateToggle({ Name = nome, CurrentValue = atual, Flag = flag, Callback = function(v)
+      if cb then cb(v) end
+    end })
+  end)
+end
+local function slider(tab, nome, min, max, inc, atual, sufixo, flag, cb)
+  if not tab then return nil end
+  alterar(flag, atual, "slider")
+  return seguro(function()
+    return tab:CreateSlider({ Name = nome, Range = { min, max }, Increment = inc, Suffix = sufixo or "",
+      CurrentValue = atual, Flag = flag, Callback = function(v) if cb then cb(v) end end })
+  end)
+end
+local function dropdown(tab, nome, opcoes, atual, flag, multiplo, cb)
+  if not tab then return nil end
+  alterar(flag, atual, "dropdown")
+  return seguro(function()
+    return tab:CreateDropdown({ Name = nome, Options = opcoes, CurrentOption = atual,
+      MultipleOptions = multiplo or false, Flag = flag, Callback = function(v) if cb then cb(v) end end })
+  end)
+end
+local function botao(tab, nome, cb)
+  if not tab then return nil end
+  return seguro(function()
+    return tab:CreateButton({ Name = nome, Callback = function() seguro(cb) end })
+  end)
+end
+local function entrada(tab, nome, placeholder, cb)
+  if not tab then return nil end
+  return seguro(function()
+    return tab:CreateInput({ Name = nome, CurrentValue = "", PlaceholderText = placeholder or "",
+      RemoveTextAfterFocusLost = true, Callback = function(t) seguro(cb, t) end })
+  end)
+end
+
+-- -------------------- as 10 abas --------------------
+function UI.construir(R)
+  UI.R = R
+  local janela = seguro(function()
+    return R:CreateWindow({
+      Name = "ARKHER · Street Soccer",
+      LoadingTitle = "ARKHER Street Soccer",
+      LoadingSubtitle = "hub local · 10 abas · mobile + PC",
+      Theme = "Dark",
+      DisableRayfieldPrompts = true,
+      DisableBuildWarnings = true,
+      ConfigurationSaving = { Enabled = true, FolderName = "ARKHER_SS", FileName = "rayfield" },
+      Discord = { Enabled = false, Invite = "", RememberJoins = false },
+      KeySystem = false,
+    })
+  end)
+  if not janela then return false, "CreateWindow falhou" end
+  UI.janela = janela
+
+  -- =========== ABA 1: VISAO GERAL ===========
+  local t1 = aba("Visao Geral")
+  secao(t1, "Hub")
+  toggle(t1, "Hub ligado (master)", CONF.geral.ativo, "geral.ativo", function(v) CONF.geral.ativo = v end)
+  toggle(t1, "Modo leve (hardware fraco)", CONF.geral.modoLeve, "geral.modoLeve", function(v)
+    CONF.geral.modoLeve = v
+    CONF.geral.tick = v and 0.12 or 0.07
+  end)
+  slider(t1, "Intervalo do cerebro (s)", 0.03, 0.5, 0.01, CONF.geral.tick, "s", "geral.tick", function(v) CONF.geral.tick = v end)
+  toggle(t1, "Notificacoes", CONF.geral.notificar, "geral.notificar", function(v) CONF.geral.notificar = v end)
+  toggle(t1, "Registrar no console (log)", CONF.geral.log, "geral.log", function(v) M.LOG = v end)
+  secao(t1, "Botao de chute (exclusivo do auto shoot)")
+  toggle(t1, "Mostrar botao na tela", CONF.geral.hudBotao, "geral.hudBotao", function(v)
+    CONF.geral.hudBotao = v
+    HUD.atualizarBotao()
+  end)
+  slider(t1, "Transparencia do botao", 0.05, 0.9, 0.05, CONF.geral.hudOpacidade, "", "geral.hudOpacidade", function(v)
+    CONF.geral.hudOpacidade = v
+    HUD.atualizarBotao()
+  end)
+  slider(t1, "Tamanho do botao", 50, 130, 2, num(CONF.geral.hudBotaoTamanho, 78), "px", "geral.hudBotaoTamanho", function(v)
+    CONF.geral.hudBotaoTamanho = v
+    HUD.atualizarBotao()
+  end)
+  dropdown(t1, "Tecla do chute", { "F", "G", "H", "V", "B", "X", "Z", "C" }, CONF.geral.teclaChute, "geral.teclaChute", false, function(v)
+    CONF.geral.teclaChute = v
+    HUD.atualizarBotao()
+  end)
+  toggle(t1, "Painel de status na tela", CONF.geral.hudStatus, "geral.hudStatus", function(v)
+    CONF.geral.hudStatus = v
+    HUD.mostrar(true)
+  end)
+  secao(t1, "Estatisticas (medidas no seu jogo)")
+  UI.labelEstat = rotulo(t1, "sem dados ainda", Color3.fromRGB(160, 255, 190), true)
+  botao(t1, "Atualizar estatisticas", function()
+    local e = ESTADO.estat
+    local texto = string.format(
+      "chutes %d | gols %d | tackles %d | dribles %d | acoes %d | passes %d | defesas %d | falhas %d\naproveitamento %.1f%% | gols/chute %.1f%%",
+      e.chutes or 0, e.gols or 0, e.tackles or 0, e.dribles or 0, e.acoes or 0, e.passes or 0,
+      e.defesas or 0, e.falhas or 0, NUCLEO.taxa(e), NUCLEO.golsPorChute(e))
+    seguro(function() UI.labelEstat:Set(texto) end)
+    avisar("Estatisticas", texto, nil, 6)
+  end)
+  botao(t1, "Zerar estatisticas", function()
+    for k in pairs(ESTADO.estat) do ESTADO.estat[k] = 0 end
+  end)
+  secao(t1, "Sessao")
+  rotulo(t1, "executor: " .. tostring(M.EXECUTOR) .. " · gancho: " .. tostring(ESTADO.gancho or "nenhum"), Color3.fromRGB(180, 180, 180))
+  botao(t1, "Salvar configuracao", function() local ok, msg = UI.salvarConfig() avisar("Config", ok and "salva no disco" or tostring(msg)) end)
+  botao(t1, "Carregar configuracao", function() local n = UI.carregarConfig() avisar("Config", "aplicada (" .. tostring(n) .. " campos)") end)
+  botao(t1, "Descarregar hub (volta tudo ao normal)", function() M.descarregar() end)
+
+  -- =========== ABA 2: CHUTE ===========
+  local t2 = aba("Chute")
+  secao(t2, "Auto Shoot")
+  toggle(t2, "Auto Shoot ligado", CONF.chute.auto, "chute.auto", function(v)
+    CONF.chute.auto = v
+    HUD.atualizarBotao()
+  end)
+  rotulo(t2, "Chute sempre na forca maxima, mirando o canto mais longe do goleiro.", Color3.fromRGB(255, 220, 140))
+  slider(t2, "Forca (1 = maxima)", 0.4, 1, 0.05, CONF.chute.forca, "", "chute.forca", function(v) CONF.chute.forca = v end)
+  slider(t2, "Tempo de carga (s)", 0.1, 1.2, 0.02, CONF.chute.carga, "s", "chute.carga", function(v) CONF.chute.carga = v end)
+  dropdown(t2, "Gol que ataco", { "auto", "home", "away" }, CONF.chute.mira, "chute.mira", false, function(v) CONF.chute.mira = v end)
+  dropdown(t2, "Canto", { "auto", "esquerda", "direita", "aleatorio" }, CONF.chute.canto, "chute.canto", false, function(v) CONF.chute.canto = v end)
+  dropdown(t2, "Tipo de chute", { "auto", "normal", "curva", "aleatorio" }, CONF.chute.curvado, "chute.curvado", false, function(v) CONF.chute.curvado = v end)
+  slider(t2, "Distancia maxima (studs)", 30, 400, 5, CONF.chute.distancia, " studs", "chute.distancia", function(v) CONF.chute.distancia = v end)
+  slider(t2, "Margem dentro do gol (studs)", 0.1, 1.5, 0.05, CONF.chute.margem, "", "chute.margem", function(v) CONF.chute.margem = v end)
+  slider(t2, "Tentativas se falhar", 1, 6, 1, CONF.chute.retry, "x", "chute.retry", function(v) CONF.chute.retry = v end)
+  toggle(t2, "Usar assinatura aprendida (direto)", CONF.chute.direto, "chute.direto", function(v) CONF.chute.direto = v end)
+  toggle(t2, "Conferir se a bola saiu (laco fechado)", CONF.chute.verificar, "chute.verificar", function(v) CONF.chute.verificar = v end)
+  secao(t2, "Teste")
+  botao(t2, "Chutar agora (mira perfeita)", function()
+    local ok, plano = AUTOS.chutar({ avisar = true, forcado = true })
+    avisar("Chute", ok and string.format("saiu para o %s (%.0f studs)", plano and plano.nomeGol or "?", plano and plano.distGol or 0)
+      or "nao deu: veja a aba Stats", nil, 3)
+  end)
+  botao(t2, "Ver assinatura aprendida do ShootTheBall", function()
+    local e = ASSIN.tem("shoot")
+    if not e then return avisar("Assinatura", "ainda nao aprendi: entre no jogo e chute uma vez com o hub ligado") end
+    local tipos = table.concat(e.mapa.tipos or {}, ", ")
+    avisar("ShootTheBall", string.format("tipos: %s | ponto=%s forca=%s | amostras=%d",
+      tipos, tostring(e.mapa.ponto), tostring(e.mapa.forca), #(e.amostras or {})), nil, 8)
+  end)
+
+  -- =========== ABA 3: DRIBLE ===========
+  local t3 = aba("Drible")
+  secao(t3, "Auto Drible (ja vem no ponto)")
+  toggle(t3, "Auto Drible ligado", CONF.drible.auto, "drible.auto", function(v) CONF.drible.auto = v end)
+  slider(t3, "Raio do marcador (studs)", 3, 20, 1, CONF.drible.raio, " studs", "drible.raio", function(v) CONF.drible.raio = v end)
+  slider(t3, "Cooldown (s)", 0.3, 3, 0.1, CONF.drible.cooldown, "s", "drible.cooldown", function(v) CONF.drible.cooldown = v end)
+  dropdown(t3, "Tecla do drible", { "Q", "E", "R", "T" }, CONF.drible.tecla, "drible.tecla", false, function(v) CONF.drible.tecla = v end)
+  toggle(t3, "Sair do bolso do marcador (corte)", CONF.drible.corte, "drible.corte", function(v) CONF.drible.corte = v end)
+  botao(t3, "Testar drible agora", function() AUTOS.driblar({}) end)
+  rotulo(t3, "O drible usa a tecla real do jogo + fuga calculada do marcador.", Color3.fromRGB(180, 180, 180))
+
+  -- =========== ABA 4: TACKLE ===========
+  local t4 = aba("Tackle")
+  secao(t4, "Auto Tackle (configurado no ponto)")
+  toggle(t4, "Auto Tackle ligado", CONF.tackle.auto, "tackle.auto", function(v) CONF.tackle.auto = v end)
+  slider(t4, "Alcance do carrinho (studs)", 3, 14, 0.5, CONF.tackle.alcance, " studs", "tackle.alcance", function(v) CONF.tackle.alcance = v end)
+  slider(t4, "Bola perto dele (studs)", 2, 16, 0.5, CONF.tackle.bolaPerto, " studs", "tackle.bolaPerto", function(v) CONF.tackle.bolaPerto = v end)
+  slider(t4, "Cooldown (s)", 0.2, 3, 0.1, CONF.tackle.cooldown, "s", "tackle.cooldown", function(v) CONF.tackle.cooldown = v end)
+  toggle(t4, "Prever o movimento (entra antes)", CONF.tackle.prever, "tackle.prever", function(v) CONF.tackle.prever = v end)
+  toggle(t4, "Repetir se ele mantiver a bola", CONF.tackle.repetir, "tackle.repetir", function(v) CONF.tackle.repetir = v end)
+  botao(t4, "Testar tackle agora", function() AUTOS.tacklear({}) end)
+
+  -- =========== ABA 5: ACOES ===========
+  local t5 = aba("Acoes")
+  secao(t5, "Auto Actions (bicicleta, cabecada, voleio, carrinho)")
+  toggle(t5, "Auto Actions ligado", CONF.actions.auto, "actions.auto", function(v) CONF.actions.auto = v end)
+  toggle(t5, "Bicicleta", CONF.actions.bicicleta, "actions.bicicleta", function(v) CONF.actions.bicicleta = v end)
+  toggle(t5, "Cabecada (Espaco)", CONF.actions.cabecada, "actions.cabecada", function(v) CONF.actions.cabecada = v end)
+  toggle(t5, "Voleio", CONF.actions.voleio, "actions.voleio", function(v) CONF.actions.voleio = v end)
+  toggle(t5, "Carrinho (E correndo)", CONF.actions.carrinho, "actions.carrinho", function(v) CONF.actions.carrinho = v end)
+  slider(t5, "Altura minima da bola (studs)", 2, 14, 0.5, CONF.actions.altura, " studs", "actions.altura", function(v) CONF.actions.altura = v end)
+  slider(t5, "Cooldown (s)", 0.4, 4, 0.1, CONF.actions.cooldown, "s", "actions.cooldown", function(v) CONF.actions.cooldown = v end)
+  dropdown(t5, "Acao aprendida do jogo (Remotes.Action)", { "auto", "bicycle", "header", "volley", "rabona", "elastico", "flip" },
+    CONF.actions.acao, "actions.acao", false, function(v) CONF.actions.acao = v end)
+  botao(t5, "Bicicleta agora", function() AUTOS.acao("bicicleta", {}) end)
+  botao(t5, "Cabecada agora", function() AUTOS.acao("cabecada", {}) end)
+  botao(t5, "Voleio agora", function() AUTOS.acao("voleio", {}) end)
+
+  -- =========== ABA 6: GOLEIRO ===========
+  local t6 = aba("Goleiro")
+  secao(t6, "Auto GK (defesa legitima)")
+  toggle(t6, "Auto Goleiro ligado", CONF.goleiro.auto, "goleiro.auto", function(v) CONF.goleiro.auto = v end)
+  toggle(t6, "Defesa (corta a linha do chute)", CONF.goleiro.defesa, "goleiro.defesa", function(v) CONF.goleiro.defesa = v end)
+  toggle(t6, "Pular quando a bola chega", CONF.goleiro.dive, "goleiro.dive", function(v) CONF.goleiro.dive = v end)
+  toggle(t6, "Posicionar no bissetor", CONF.goleiro.posicionar, "goleiro.posicionar", function(v) CONF.goleiro.posicionar = v end)
+  slider(t6, "Profundidade na linha (studs)", 3, 16, 0.5, CONF.goleiro.profundidade, " studs", "goleiro.profundidade", function(v) CONF.goleiro.profundidade = v end)
+  toggle(t6, "Forcar modo goleiro (mesmo se eu nao for GK)", CONF.goleiro.forcar, "goleiro.forcar", function(v) CONF.goleiro.forcar = v end)
+  toggle(t6, "Usar GKHitbox (so com assinatura aprendida)", CONF.goleiro.hitbox, "goleiro.hitbox", function(v) CONF.goleiro.hitbox = v end)
+  rotulo(t6, "Eu sou o goleiro: " .. tostring(GK.ehGoleiro()) .. " (" .. GK.motivo .. ")", Color3.fromRGB(200, 230, 255))
+  botao(t6, "Testar defesa agora", function() AUTOS.goleiro({ forcar = true }) end)
+  rotulo(t6, "Defesa legitima = posicao + tempo + pulo. Sem remote inventado.", Color3.fromRGB(180, 180, 180))
+
+  -- =========== ABA 7: PASSE ===========
+  local t7 = aba("Passe")
+  secao(t7, "Auto Pass (goleiro e linha)")
+  toggle(t7, "Auto Passe ligado", CONF.passe.gk, "passe.gk", function(v) CONF.passe.gk = v end)
+  toggle(t7, "So passe seguro (marcado = segura a bola)", CONF.passe.seguro, "passe.seguro", function(v) CONF.passe.seguro = v end)
+  slider(t7, "Forca do passe", 0.2, 1, 0.05, CONF.passe.forca, "", "passe.forca", function(v) CONF.passe.forca = v end)
+  slider(t7, "Alcance do passe (studs)", 10, 150, 5, CONF.passe.alcance, " studs", "passe.alcance", function(v) CONF.passe.alcance = v end)
+  botao(t7, "Passar agora (melhor companheiro)", function() AUTOS.passar({}) end)
+  rotulo(t7, "Escolhe o companheiro com a linha de passe mais limpa.", Color3.fromRGB(180, 180, 180))
+
+  -- =========== ABA 8: CEREBRO ===========
+  local t8 = aba("Cerebro")
+  secao(t8, "Auto Top Global (joga no seu lugar quando voce nao esta no controle)")
+  toggle(t8, "Cerebro ligado", CONF.cerebro.auto, "cerebro.auto", function(v) CONF.cerebro.auto = v end)
+  dropdown(t8, "Nivel", { "Top 1 Global", "Forte", "Equilibrado", "Natural" }, CONF.cerebro.nivel, "cerebro.nivel", false, function(v)
+    CONF.cerebro.nivel = v
+    if v == "Top 1 Global" then CONF.cerebro.agressividade = 0.9 CONF.geral.tick = math.min(CONF.geral.tick, 0.08)
+    elseif v == "Forte" then CONF.cerebro.agressividade = 0.75
+    elseif v == "Equilibrado" then CONF.cerebro.agressividade = 0.6
+    else CONF.cerebro.agressividade = 0.45 end
+  end)
+  slider(t8, "Agressividade", 0.2, 1, 0.05, CONF.cerebro.agressividade, "", "cerebro.agressividade", function(v) CONF.cerebro.agressividade = v end)
+  toggle(t8, "Assistir enquanto EU jogo (so as jogadas avancadas)", CONF.cerebro.assistir, "cerebro.assistir", function(v) CONF.cerebro.assistir = v end)
+  toggle(t8, "Mexer o personagem mesmo se eu estiver andando", CONF.cerebro.moverManual, "cerebro.moverManual", function(v) CONF.cerebro.moverManual = v end)
+  toggle(t8, "Voltar para defender (ultimo homem)", CONF.cerebro.voltar, "cerebro.voltar", function(v) CONF.cerebro.voltar = v end)
+  rotulo(t8, "acao agora: —", Color3.fromRGB(160, 255, 190), true)
+  UI.labelAcao = rotulo(t8, "acao agora: —", Color3.fromRGB(160, 255, 190), true)
+  botao(t8, "Rodar um tick agora (ver o que ele faria)", function()
+    CEREBRO.tick()
+    avisar("Cerebro", "acao: " .. tostring(ESTADO.acaoAtual) .. " | " .. tostring(ESTADO.ultimaAcao), nil, 5)
+  end)
+  rotulo(t8, "Ele detecta os SEUS movimentos e entra com o que e avancado.", Color3.fromRGB(180, 180, 180))
+
+  -- =========== ABA 9: DESBLOQUEAR ===========
+  local t9 = aba("Desbloquear")
+  secao(t9, "Resgates do jogo (remotes reais)")
+  toggle(t9, "Auto coleta periodica", CONF.desbloquear.autoColeta, "desbloquear.autoColeta", function(v) CONF.desbloquear.autoColeta = v end)
+  slider(t9, "Intervalo da coleta (s)", 15, 300, 5, CONF.desbloquear.intervalo, "s", "desbloquear.intervalo", function(v) CONF.desbloquear.intervalo = v end)
+  botao(t9, "Resgatar tudo agora (diario, quest, collect, bastao)", function()
+    local n = DESB.resgatarTudo()
+    avisar("Desbloquear", n .. " pedidos enviados", nil, 4)
+  end)
+  toggle(t9, "Ler conteudos dos sorteios (so leitura)", CONF.desbloquear.lerSpin, "desbloquear.lerSpin", function(v) CONF.desbloquear.lerSpin = v end)
+  botao(t9, "Ler sorteios agora", function()
+    DESB.lerSorteios(function(nome, resp)
+      avisar(nome, tostring(resp):sub(1, 120), nil, 6)
+    end)
+  end)
+  secao(t9, "Codigos promocionais (RedeemCode)")
+  entrada(t9, "Codigo (ex: STREETSOCCER)", "codigo do jogo", function(texto)
+    local ok, resp = DESB.codigo(texto)
+    avisar("Codigo " .. tostring(texto), ok and ("resposta: " .. tostring(resp)) or tostring(resp), nil, 5)
+  end)
+  entrada(t9, "Varios codigos (separe por espaco ou virgula)", "COD1 COD2 COD3", function(texto)
+    local n, total = DESB.loteCodigos(texto)
+    avisar("Codigos", string.format("%d de %d aceitos", n, total), nil, 5)
+  end)
+  botao(t9, "Ler codigos do arquivo ARKHER_SS_codigos.txt", function()
+    local n, total = DESB.loteCodigos(nil)
+    avisar("Codigos do arquivo", string.format("%d de %d aceitos", n, total), nil, 5)
+  end)
+  secao(t9, "Loja e equipar")
+  botao(t9, "Abrir/atualizar loja (ShopBundleEvents.ShopEvent)", function() DESB.loja("shop") end)
+  botao(t9, "Resetar loja (ShopBundleEvents.ResetShop)", function() DESB.loja("reset") end)
+  botao(t9, "Repetir o ultimo equipar (usa a assinatura real)", function()
+    local ok, msg = DESB.repetirEquipar()
+    avisar("Equipar", ok and "pedido enviado" or tostring(msg), nil, 4)
+  end)
+  secao(t9, "Gamepass — a verdade")
+  paragrafo(t9, "Gamepass",
+    "Quem confere gamepass e o SERVIDOR do jogo. Nenhum script de cliente entrega gamepass: o que existe e o que este hub faz aqui e cobrar os remotes que o proprio jogo usa (resgate diario, coleta, sorteio, equipar) com a assinatura real e ler o que voltou. Se um dia o jogo aceitar algo por remote, este hub ja fala a lingua dele. Prometer o contrario seria mentira.")
+  entrada(t9, "Consultar produto por ID (assetId)", "ex: 123456789", function(texto)
+    local ok, info = DESB.infoProduto(texto)
+    avisar("Produto", ok and (tostring(info.Name) .. " - " .. tostring(info.PriceInRobux) .. " R$") or "nao consegui consultar (o jogo precisa estar aberto)", nil, 6)
+  end)
+  botao(t9, "Ver registro do Desbloquear", function()
+    local linhas = {}
+    for i = math.max(1, #DESB.registro - 8), #DESB.registro do
+      linhas[#linhas + 1] = DESB.registro[i].texto
     end
-end)
+    avisar("Registro", table.concat(linhas, "\n"):sub(1, 400), nil, 10)
+  end)
+  secao(t9, "Remotes que eu conheco (e as iscas)")
+  rotulo(t9, "reais: ShootTheBall, Pass, Tackle, Action, GKHitbox, Collect, ClaimStick, DailyReward, WQuest, Equip, Jersey, Avatar, Settings, RedeemCode, SpinnerContents*",
+    Color3.fromRGB(160, 255, 190))
+  rotulo(t9, "isca/perigo (o hub NUNCA usa): ShootTheBaII (i maiusculo), AdminBan, Teleport, lancage, Iancage, tcelloc, cfactor, FPSNORE, PINGNORE",
+    Color3.fromRGB(255, 160, 160))
 
--- Rayfield Loader
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
-local Window = Rayfield:CreateWindow({
-    Name = "⚡ REALISTIC STREET SOCCER | TOP GLOBAL ⚡",
-    LoadingTitle = "RSS TOP GLOBAL PRO SUITE",
-    LoadingSubtitle = "by WhiteXz7",
-    ConfigurationSaving = { Enabled = true, FolderName = "RSS_TopGlobalConfig", FileName = "Config" },
-    KeySystem = false
-})
+  -- =========== ABA 10: ANTI-LAG ===========
+  local t10 = aba("Anti-Lag")
+  secao(t10, "Presets (itel A70 / celular antigo)")
+  toggle(t10, "Aplicar ao entrar no jogo", CONF.antilag.auto, "antilag.auto", function(v) CONF.antilag.auto = v end)
+  dropdown(t10, "Preset", { "Ultra leve", "Fraco (itel/Celular antigo)", "Medio", "PC / Leve" },
+    CONF.antilag.preset, "antilag.preset", false, function(v)
+      LAG.preset(v)
+      avisar("Anti-Lag", "preset " .. tostring(v) .. " aplicado", nil, 3)
+    end)
+  botao(t10, "Aplicar agora", function()
+    LAG.preset(CONF.antilag.preset)
+    avisar("Anti-Lag", "aplicando aos poucos (nao trava o jogo)", nil, 3)
+  end)
+  botao(t10, "Restaurar tudo (volta como era)", function()
+    local n = LAG.restaurar()
+    avisar("Anti-Lag", n .. " ajustes revertidos", nil, 3)
+  end)
+  secao(t10, "O que desligar")
+  toggle(t10, "Sombras", CONF.antilag.sombras, "antilag.sombras", function(v) CONF.antilag.sombras = v end)
+  toggle(t10, "Particulas/efeitos", CONF.antilag.particulas, "antilag.particulas", function(v) CONF.antilag.particulas = v end)
+  toggle(t10, "Decals e texturas", CONF.antilag.decals, "antilag.decals", function(v) CONF.antilag.decals = v end)
+  toggle(t10, "Luzes (Point/Spot/Surface)", CONF.antilag.luz, "antilag.luz", function(v) CONF.antilag.luz = v end)
+  toggle(t10, "Ceu e pos-processamento", CONF.antilag.ceu, "antilag.ceu", function(v) CONF.antilag.ceu = v end)
+  toggle(t10, "Sons e musica", CONF.antilag.som, "antilag.som", function(v) CONF.antilag.som = v end)
+  toggle(t10, "Ancorar decoracao longe (fisica)", CONF.antilag.fisica, "antilag.fisica", function(v) CONF.antilag.fisica = v end)
+  toggle(t10, "Esconder partes longe (so para voce)", CONF.antilag.partes, "antilag.partes", function(v) CONF.antilag.partes = v end)
+  toggle(t10, "Material simples nas partes longe", CONF.antilag.malhas, "antilag.malhas", function(v) CONF.antilag.malhas = v end)
+  toggle(t10, "Acessorios dos outros jogadores", CONF.antilag.retratos, "antilag.retratos", function(v) CONF.antilag.retratos = v end)
+  toggle(t10, "NPCs/decoracao animada", CONF.antilag.animais, "antilag.animais", function(v) CONF.antilag.animais = v end)
+  toggle(t10, "Topbar/mochila/lista (CoreGui)", CONF.antilag.ui, "antilag.ui", function(v) CONF.antilag.ui = v end)
+  slider(t10, "Distancia de neblina (studs)", 120, 500, 10, CONF.antilag.distancia, " studs", "antilag.distancia", function(v) CONF.antilag.distancia = v end)
+  rotulo(t10, "Nunca toca: bola, gols, alvos, humanoides, seu personagem e o dos outros.", Color3.fromRGB(255, 220, 140))
+  rotulo(t10, "O ganho real: sombras + particulas + musica. O resto e bonus.", Color3.fromRGB(180, 180, 180))
 
--- Criação das 10 Abas
-local Tab1 = Window:CreateTab("⚡ Top Global AI", 4483345998)
-local Tab2 = Window:CreateTab("⚽ Auto Shoot", 4483345998)
-local Tab3 = Window:CreateTab("🌪️ Auto Dribble", 4483345998)
-local Tab4 = Window:CreateTab("🛡️ Auto Tackle", 4483345998)
-local Tab5 = Window:CreateTab("🤸 Auto Actions", 4483345998)
-local Tab6 = Window:CreateTab("🧤 Goalkeeper (GK)", 4483345998)
-local Tab7 = Window:CreateTab("🏃 Movement", 4483345998)
-local Tab8 = Window:CreateTab("🔓 Unlock & ESP", 4483345998)
-local Tab9 = Window:CreateTab("🎁 Auto Farm", 4483345998)
-local Tab10 = Window:CreateTab("🚀 Anti-Lag & Config", 4483345998)
+  return true
+end
 
--- Elementos das Abas
-Tab1:CreateToggle({ Name = "🌟 Ativar Top Global 100% (Auto Play Pro)", CurrentValue = false, Callback = function(v) Config.TopGlobal.Enabled = v end })
-Tab2:CreateButton({ Name = "💥 Chutar Agora (Auto Shoot 99%)", Callback = function() executeAutoShoot(true) end })
-Tab2:CreateToggle({ Name = "👁️ Exibir Botão Flutuante de Chute", CurrentValue = true, Callback = function(v) shootButton.Visible = v end })
-Tab3:CreateToggle({ Name = "🌪️ Auto Dribble Perfeito (Ankle Breaker)", CurrentValue = true, Callback = function(v) Config.AutoDribble.Enabled = v end })
-Tab4:CreateToggle({ Name = "🛡️ Auto Tackle Perfeito (Anti-Dribble)", CurrentValue = true, Callback = function(v) Config.AutoTackle.Enabled = v end })
-Tab5:CreateToggle({ Name = "🚲 Auto Bicicleta na Área", CurrentValue = true, Callback = function(v) Config.AutoActions.AutoBicycleKick = v end })
-Tab6:CreateToggle({ Name = "🧤 Auto Dive & Save (Goleiro)", CurrentValue = true, Callback = function(v) Config.Goalkeeper.AutoDive = v end })
-Tab6:CreateToggle({ Name = "🎯 Auto Pass (GK Only)", CurrentValue = true, Callback = function(v) Config.Goalkeeper.AutoPass = v end })
-Tab7:CreateToggle({ Name = "⚡ Infinite Stamina", CurrentValue = true, Callback = function(v) Config.Movement.InfiniteStamina = v end })
-Tab8:CreateButton({ Name = "🔓 Desbloquear Tudo (Cartas/Chuteiras/VIP)", Callback = function() safeFireRemote(Remotes.Equip, "All") end })
-Tab9:CreateToggle({ Name = "🎁 Auto Daily Reward", CurrentValue = true, Callback = function(v) Config.AutoFarm.AutoDailyReward = v end })
-Tab10:CreateToggle({
-    Name = "🚀 ULTRA POTATO BOOST (Itel A70 / 60 FPS)",
-    CurrentValue = false,
-    Callback = function(v)
-        Lighting.GlobalShadows = not v
-        Lighting.FogEnd = v and 9e9 or 10000
-        collectgarbage("collect")
+-- -------------------- interface de reserva (sem internet) --------------------
+function UI.construirFallback()
+  local pai = paiDoGui()
+  if not pai then return false end
+  local sg = novo("ScreenGui", { Name = "ARKHER_SS_PAINEL", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 998 }, pai)
+  if not sg then return false end
+  if funcoes.protectgui then pcall(funcoes.protectgui, sg) end
+  UI.janelaFallback = sg
+  local jan = novo("Frame", {
+    Size = UDim2.fromOffset(330, 330), Position = UDim2.new(0, 40, 0, 60),
+    BackgroundColor3 = Color3.fromRGB(14, 14, 18), BackgroundTransparency = 0.08,
+    BorderSizePixel = 0, Active = true,
+  }, sg)
+  novo("UICorner", { CornerRadius = UDim.new(0, 12) }, jan)
+  novo("UIStroke", { Color = Color3.fromRGB(70, 220, 130), Transparency = 0.35 }, jan)
+  local titulo = novo("TextButton", {
+    Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = Color3.fromRGB(24, 26, 32),
+    Text = "ARKHER Street Soccer (modo reserva)", TextColor3 = Color3.fromRGB(160, 255, 190),
+    Font = Enum.Font.GothamBold, TextSize = 13, BorderSizePixel = 0,
+  }, jan)
+  novo("UICorner", { CornerRadius = UDim.new(0, 12) }, titulo)
+  local corpo = novo("ScrollingFrame", {
+    Size = UDim2.new(1, -12, 1, -46), Position = UDim2.fromOffset(6, 40),
+    BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
+    CanvasSize = UDim2.new(0, 0, 0, 520),
+  }, jan)
+
+  local y = 0
+  local function linhaToggle(nome, get, set)
+    local b = novo("TextButton", {
+      Size = UDim2.new(1, -8, 0, 28), Position = UDim2.fromOffset(2, y),
+      BackgroundColor3 = Color3.fromRGB(22, 24, 30), TextColor3 = Color3.fromRGB(230, 230, 230),
+      Font = Enum.Font.Gotham, TextSize = 12, BorderSizePixel = 0, TextXAlignment = Enum.TextXAlignment.Left,
+      Text = "   " .. nome,
+    }, corpo)
+    novo("UICorner", { CornerRadius = UDim.new(0, 6) }, b)
+    local function pinta()
+      local on = get()
+      b.Text = (on and "   [ON]  " or "   [OFF] ") .. nome
+      b.TextColor3 = on and Color3.fromRGB(160, 255, 190) or Color3.fromRGB(200, 200, 200)
     end
-})
+    pinta()
+    ligar(b.MouseButton1Click, function() set(not get()) pinta() HUD.atualizarBotao() end)
+    y = y + 32
+    return b
+  end
+  local function linhaBotao(nome, fn)
+    local b = novo("TextButton", {
+      Size = UDim2.new(1, -8, 0, 28), Position = UDim2.fromOffset(2, y),
+      BackgroundColor3 = Color3.fromRGB(30, 46, 38), TextColor3 = Color3.fromRGB(210, 255, 230),
+      Font = Enum.Font.Gotham, TextSize = 12, BorderSizePixel = 0, Text = nome,
+    }, corpo)
+    novo("UICorner", { CornerRadius = UDim.new(0, 6) }, b)
+    ligar(b.MouseButton1Click, function() seguro(fn) end)
+    y = y + 32
+  end
 
-Rayfield:Notify({
-    Title = "⚡ RSS Top Global Hub Carregado!",
-    Content = "Script com 10 Abas, Auto Shoot 99% e Botão Flutuante pronto para jogar!",
-    Duration = 5,
-    Image = 4483345998
-})
+  linhaToggle("Hub ligado", function() return CONF.geral.ativo end, function(v) CONF.geral.ativo = v end)
+  linhaToggle("Auto Shoot (botao na tela)", function() return CONF.chute.auto end, function(v)
+    CONF.chute.auto = v
+    HUD.atualizarBotao()
+  end)
+  linhaToggle("Auto Drible", function() return CONF.drible.auto end, function(v) CONF.drible.auto = v end)
+  linhaToggle("Auto Tackle", function() return CONF.tackle.auto end, function(v) CONF.tackle.auto = v end)
+  linhaToggle("Auto Actions", function() return CONF.actions.auto end, function(v) CONF.actions.auto = v end)
+  linhaToggle("Auto Goleiro", function() return CONF.goleiro.auto end, function(v) CONF.goleiro.auto = v end)
+  linhaToggle("Auto Passe", function() return CONF.passe.gk end, function(v) CONF.passe.gk = v end)
+  linhaToggle("Cerebro (Top 1 Global)", function() return CONF.cerebro.auto end, function(v) CONF.cerebro.auto = v end)
+  linhaToggle("Cerebro assiste meu jogo", function() return CONF.cerebro.assistir end, function(v) CONF.cerebro.assistir = v end)
+  linhaToggle("Anti-Lag", function() return CONF.antilag.auto end, function(v) CONF.antilag.auto = v end)
+  linhaToggle("Botao de chute visivel", function() return CONF.geral.hudBotao end, function(v) CONF.geral.hudBotao = v end)
+  linhaBotao("Aplicar Anti-Lag agora", function() LAG.preset(CONF.antilag.preset) end)
+  linhaBotao("Restaurar Anti-Lag", function() LAG.restaurar() end)
+  linhaBotao("Chutar agora", function() AUTOS.chutar({ avisar = true, forcado = true }) end)
+  linhaBotao("Passar agora", function() AUTOS.passar({}) end)
+  linhaBotao("Resgatar tudo", function() DESB.resgatarTudo() end)
+  linhaBotao("Salvar configuracao", function() UI.salvarConfig() end)
+  linhaBotao("Carregar configuracao", function() UI.carregarConfig() end)
+  corpo.CanvasSize = UDim2.new(0, 0, 0, y + 12)
+
+  -- arrastar a janela
+  local arrastando, inicio, origem = false, nil, nil
+  ligar(titulo.InputBegan, function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+      arrastando = true inicio = input.Position origem = jan.Position
+    end
+  end)
+  ligar(titulo.InputChanged, function(input)
+    if arrastando then
+      local d = input.Position - inicio
+      pcall(function()
+        jan.Position = UDim2.new(origem.X.Scale, origem.X.Offset + d.X, origem.Y.Scale, origem.Y.Offset + d.Y)
+      end)
+    end
+  end)
+  ligar(titulo.InputEnded, function() arrastando = false end)
+  avisar("ARKHER", "Rayfield nao carregou: usei a interface reserva (tudo funciona).", nil, 6)
+  return true
+end
+
+-- -------------------- salvar / carregar config --------------------
+function UI.salvarConfig()
+  if MODO_TESTE then return false, "modo teste" end
+  if type(funcoes.writefile) ~= "function" then return false, "executor sem writefile" end
+  local ok = pcall(funcoes.writefile, "ARKHER_SS_config.txt", NUCLEO.serializar(CONF))
+  return ok, ok and "ok" or "falhou"
+end
+
+function UI.carregarConfig()
+  if MODO_TESTE then return 0 end
+  if type(funcoes.readfile) ~= "function" then return 0 end
+  local ok, texto = pcall(funcoes.readfile, "ARKHER_SS_config.txt")
+  if not ok or type(texto) ~= "string" then return 0 end
+  local _, n = NUCLEO.carregar(texto, CONF)
+  HUD.atualizarBotao()
+  for _, c in ipairs(UI.controles) do
+    -- tenta sincronizar os controles do Rayfield que ja existem
+    pcall(function() if c.obj and c.obj.Set then c.obj:Set(c.valor) end end)
+  end
+  return n
+end
+M.UI = UI
+
+-- ============================ 16) BOOT ============================
+
+local function banner()
+  if MODO_TESTE then return end
+  local linhas = {
+    "",
+    "  ============================================================",
+    "   ARKHER · Realistic Street Soccer  ·  v" .. M.VERSAO,
+    "   executor: " .. tostring(M.EXECUTOR),
+    "   gancho de assinatura: " .. tostring(ESTADO.gancho or "nenhum (modo mira+clique)"),
+    "   botao de chute: " .. (CONF.geral.hudBotao and "na tela" or "desligado") .. " (tecla " .. CONF.geral.teclaChute .. ")",
+    "   anti-lag: " .. CONF.antilag.preset,
+    "  ============================================================",
+    "",
+  }
+  print(table.concat(linhas, "\n"))
+end
+
+function M.descarregar()
+  CEREBRO.desligar()
+  MOVER.parar()
+  HUD.destruir()
+  if UI.janelaFallback then pcall(function() UI.janelaFallback:Destroy() end) end
+  if UI.janela then
+    pcall(function() UI.R:Destroy() end)
+    pcall(function() UI.R:Destroy(UI.janela) end)
+  end
+  LAG.restaurar()
+  ESTADO.ligado = false
+  avisar("ARKHER", "hub descarregado", nil, 3)
+end
+
+function M.ligar()
+  if ESTADO.ligado then return end
+  ESTADO.ligado = true
+  M.LOG = CONF.geral.log
+
+  -- 1) assinaturas: carrega o que ja sabemos e liga o gancho passivo
+  local carregadas = ASSIN.carregar()
+  local okGancho, msgGancho = ASSIN.instalar()
+  ESTADO.gancho = ESTADO.gancho or (okGancho and "ativo") or "nenhum"
+  M.msgGancho = msgGancho
+
+  -- 2) HUD + botao de chute (aparece JA, antes de qualquer interface)
+  HUD.criar()
+  HUD.mostrar(true)
+  HUD.atualizarBotao()
+
+  -- 3) interface
+  criar(function()
+    local R, erro = UI.carregarRayfield()
+    if R then
+      local ok, err = UI.construir(R)
+      if not ok then UI.construirFallback() M.msgUI = tostring(err) end
+    else
+      UI.construirFallback()
+      M.msgUI = tostring(erro)
+    end
+    if CONF.geral.notificar then
+      avisar("ARKHER pronto", string.format("v%s · %d assinaturas · aba Desbloquear explica o resto",
+        M.VERSAO, carregadas or 0), nil, 6)
+    end
+  end)
+
+  -- 4) cerebro
+  CEREBRO.ligar()
+
+  -- 5) anti-lag (espera o jogo terminar de carregar para nao competir)
+  if CONF.antilag.auto then
+    adiar(1.5, function()
+      LAG.preset(CONF.antilag.preset)
+      if CONF.geral.notificar then avisar("Anti-Lag", "preset " .. CONF.antilag.preset, nil, 3) end
+    end)
+  end
+
+  -- 6) coleta periodica dos resgates (se ligada)
+  criar(function()
+    esperar(12)     -- deixa o jogo carregar antes de pedir qualquer coisa
+    while ESTADO.ligado do
+      esperar(5)
+      if CONF.geral.ativo and CONF.desbloquear.autoColeta and not MODO_TESTE then
+        if ESTADO.livre("resgate") then
+          ESTADO.marcar("resgate", num(CONF.desbloquear.intervalo, 45))
+          pcall(DESB.resgatarTudo)
+        end
+      end
+    end
+  end)
+
+  -- 7) salva as assinaturas de tempos em tempos (aprende uma vez, usa sempre)
+  criar(function()
+    while ESTADO.ligado do
+      esperar(90)
+      pcall(ASSIN.salvar)
+    end
+  end)
+
+  banner()
+end
+
+if not MODO_TESTE then
+  criar(function()
+    local ok, erro = pcall(M.ligar)
+    if not ok then
+      M.erro = tostring(erro)
+      warn("[ARKHER] falha ao ligar: " .. tostring(erro))
+      pcall(function() HUD.criar() end)
+    end
+  end)
+end
+
+-- deixa a mesa posta para quem quiser mexer por fora
+GENV.ARKHER_SS = M
+GENV.ARKHER_StreetSoccer = M
+
+return M
