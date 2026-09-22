@@ -893,309 +893,309 @@ função NÚCLEO.escolherGol(o)
   local dEuA = (eu - g.Away).Magnitude
   local dBolaH = o.bola e (o.bola - g.Home).Magnitude ou 1e9
   local dBolaA = o.bola e (o.bola - g.Away).Magnitude ou 1e9
-  -- bola na boca de um gol E eu mais perto desse gol => esse gol e o MEU
-  if dBolaH <= 22 and dEuH < dEuA then return "Away" end
-  if dBolaA <= 22 and dEuA < dEuH then return "Home" end
-  -- padrao: ataco o gol mais LONGE de mim (eu defendo o que fica atras)
-  if dEuH > dEuA then return "Home" end
-  return "Away"
-end
+  --bola na boca de um gol E eu mais perto desse gol => esse gol e o MEU
+  Se dBolaH <= 22 e dEuH < dEuA, então retorne "Afastar-se".
+  se dBolaA <= 22 e dEuA < dEuH então retorne "Home" end
+  --padrao: ataco o gol mais LONGE de mim (eu defendo o que fica atras)
+  Se dEuH > dEuA, então retorne "Home" fim
+  retornar "Fora"
+fim
 
 -- ---------------------------------------------------------------------
 -- 5.2) escolher o ponto exato do chute (canto / curva / altura)
---   ctx.alvos      = { {peca=parte, tipo="baixo|medio|alto|curvado|estrutura", lado=...}, ... }
---   ctx.gk         = Vector3 do goleiro (ou nil)
---   ctx.eu         = Vector3 de quem chuta
---   ctx.lado       = "auto" | "esquerda" | "direita" | "aleatorio"
---   ctx.curvado    = "auto" | "curva" | "normal" | "aleatorio"
---   ctx.margem     = studs que eu puxo para dentro da baliza (seguro)
---   ctx.centro     = centro do gol (para puxar para dentro)
+--ctx.alvos = { {peca=parte, tipo="baixo|medio|alto|curvado|estrutura", lado=...}, ... }
+--ctx.gk = Vector3 do goleiro (ou nil)
+--ctx.eu = Vector3 de quem chuta
+--ctx.lado = "automático" | "esquerda" | "direita" | "aleatório"
+--ctx.curvado = "auto" | "curva" | "normais" | "aleatório"
+--ctx.margem = studs que eu puxo para dentro da baliza (seguro)
+--ctx.centro = centro do gol (para puxar para dentro)
 -- ---------------------------------------------------------------------
 local PESO_TIPO = {
-  baixo = 30, medio = 22, alto = 10, curvado = 26, estrutura = -1e9,
+  baixo = 30, médio = 22, alto = 10, curvado = 26, estrutura = -1e9,
 }
 
-function NUCLEO.escolherPonto(ctx)
-  ctx = ctx or {}
-  local alvos = ctx.alvos or {}
-  local lista = {}
+função NÚCLEO.escolherPonto(ctx)
+  ctx = ctx ou {}
+  local alvos = ctx.alvos ou {}
+  lista local = {}
   local querCurva = ctx.curvado == "curva"
-  if ctx.curvado == "aleatorio" then querCurva = (math.random() < 0.5) end
+  se ctx.curvado == "aleatorio" então querCurva = (math.random() < 0.5) fim
   local permitidos = {}
-  if querCurva then
+  se querCurva então
     permitidos.curvado = true
-  elseif ctx.curvado == "normal" then
-    permitidos.baixo, permitidos.medio, permitidos.alto = true, true, true
-  else
-    -- auto: prefere curvado quando o goleiro esta bem posicionado (canto
-    -- fechado da muito trabalho); senao chute normal
-    permitidos.baixo, permitidos.medio, permitidos.alto = true, true, true
+  senão se ctx.curvado == "normal" então
+    permitidos.baixo, permitidos.medio, permitidos.alto = verdadeiro, verdadeiro, verdadeiro
+  outro
+    -- auto: prefere curvado quando o goleiro está bem posicionado (canto
+    -- fechado da muito trabalho); senao rampa normal
+    permitidos.baixo, permitidos.medio, permitidos.alto = verdadeiro, verdadeiro, verdadeiro
     permitidos.curvado = true
-  end
-  for i = 1, #alvos do
+  fim
+  para i = 1, #alvos do
     local a = alvos[i]
     local p = a.peca
     local ok, pos = pcall(function() return p.Position end)
-    if ok and pos and permitidos[a.tipo] then
-      local altura = 0
-      if ctx.centro then altura = math.abs(pos.Y - ctx.centro.Y) end
-      local lado = 0    -- -1 esquerda do gol / +1 direita (eixo do gol)
-      if ctx.eixo then lado = (pos - ctx.centro):Dot(ctx.eixo) > 0 and 1 or -1 end
+    se ok e pos e permitidos[a.tipo] então
+      altura local = 0
+      if ctx.centro então altura = math.abs(pos.Y - ctx.centro.Y) end
+      lado local = 0 -- -1 esquerda do gol / +1 direita (eixo do gol)
+      se ctx.eixo então lado = (pos - ctx.centro):Dot(ctx.eixo) > 0 e 1 ou -1 fim
       local pertoDoGK = 0
-      if ctx.gk then pertoDoGK = (pos - ctx.gk).Magnitude end
-      local ponto = PESO_TIPO[a.tipo] or 0
-      ponto = ponto + pertoDoGK * 1.6          -- longe do goleiro e melhor
-      ponto = ponto - altura * 2.5             -- rasteiro e mais seguro
-      if a.tipo == "curvado" and querCurva then ponto = ponto + 25 end
+      se ctx.gk então pertoDoGK = (pos - ctx.gk).Magnitude fim
+      ponto local = PESO_TIPO[a.tipo] ou 0
+      ponto = ponto + pertoDoGK * 1.6 -- longe do goleiro e melhor
+      ponto = ponto - altura * 2.5 -- rasteiro e mais seguro
+      se a.tipo == "curvado" e querCurva então ponto = ponto + 25 end
       lista[#lista + 1] = { peca = p, tipo = a.tipo, pos = pos, nota = ponto, lado = lado }
-    end
-  end
-  if #lista == 0 then return nil end
+    fim
+  fim
+  se #lista == 0 então retorne nil fim
   -- lado preferido
-  local ladoQuer = nil
-  if ctx.lado == "esquerda" then ladoQuer = -1
+  local ladoQuer = nulo
+  if ctx.lado == "esquerda" então ladoQuer = -1
   elseif ctx.lado == "direita" then ladoQuer = 1
   elseif ctx.lado == "aleatorio" then ladoQuer = (math.random() < 0.5) and -1 or 1
-  elseif ctx.gk and ctx.centro then
+  senão se ctx.gk e ctx.centro então
     -- auto com goleiro: chuta no canto oposto ao goleiro (longe dele)
     ladoQuer = ((ctx.gk - ctx.centro):Dot(ctx.eixo or V3(1, 0, 0)) > 0) and -1 or 1
-  end
-  if ladoQuer then
-    for _, l in ipairs(lista) do
-      if l.lado == ladoQuer then l.nota = l.nota + 40 end
-      if l.lado == -ladoQuer then l.nota = l.nota - 8 end
-    end
-  end
-  table.sort(lista, function(a, b) return a.nota > b.nota end)
+  fim
+  se ladoQuer então
+    para _, l em ipairs(lista) faça
+      se l.lado == ladoQuer então l.nota = l.nota + 40 end
+      se l.lado == -ladoQuer então l.nota = l.nota - 8 end
+    fim
+  fim
+  tabela.sort(lista, função(a, b) retorna a.nota > b.nota fim)
   local escolhido = lista[1]
-  -- margem: puxa o ponto para DENTRO do gol (erro de rede nao vira trave)
-  local margem = num(ctx.margem, 0.35)
-  local ponto = escolhido.pos
-  if ctx.centro then
+  --margem: puxa o ponto para DENTRO do gol (erro de rede não vira trave)
+  margem local = num(ctx.margem, 0,35)
+  ponto local = escolhido.pos
+  se ctx.centro então
     local v = (ctx.centro - ponto)
     local d = v.Magnitude
-    if d > 0.05 then
-      local passo = math.min(margem, d * 0.5)
+    se d > 0,05 então
+      passo local = math.min(margem, d * 0,5)
       ponto = ponto + v.Unit * passo
-    end
-  end
-  return {
+    fim
+  fim
+  retornar {
     peca = escolhido.peca, tipo = escolhido.tipo, lado = escolhido.lado,
     ponto = ponto, bruto = escolhido.pos, nota = escolhido.nota,
     curvado = (escolhido.tipo == "curvado"),
   }
-end
+fim
 
 -- ---------------------------------------------------------------------
 -- 5.3) assinatura aprendida -> argumentos corrigidos
---   A ideia: o jogo dispara o remote; nos guardamos tipos + valores.
---   Depois so trocamos o que precisa trocar, mantendo o resto IDENTICO.
+-- Uma ideia: o jogo dispara o remoto; nos guardamos tipos + valores.
+-- Depois trocamos o que precisa trocar, mantendo o resto IDENTICO.
 -- ---------------------------------------------------------------------
-local function tipoDe(v)
-  local t = typeof and typeof(v) or type(v)
-  if t == "Vector3" then return "Vector3" end
-  if t == "CFrame" then return "CFrame" end
-  if t == "number" or t == "string" or t == "boolean" then return t end
-  if t == "table" then return "table" end
-  if t == "nil" then return "nil" end
-  return "outro"
-end
+função local tipoDe(v)
+  local t = typeof e typeof(v) ou type(v)
+  se t == "Vector3" então retorne "Vector3" fim
+  se t == "CFrame" então retorne "CFrame" fim
+  se t == "número" ou t == "string" ou t == "booleano" então retorne t fim
+  se t == "tabela" então retorne "tabela" fim
+  se t == "nil" então retorne "nil" fim
+  retornar "outro"
+fim
 NUCLEO.tipoDe = tipoDe
 
-function NUCLEO.esquelelo(...)
-  local args = { ... }
+função NÚCLEO.esquelelo(...)
+  argumentos locais = { ... }
   local esq = {}
-  for i = 1, #args do esq[i] = tipoDe(args[i]) end
-  return esq, #args
-end
+  para i = 1, #args faça esq[i] = tipoDe(args[i]) fim
+  retornar esq, #args
+fim
 
 -- descobrir, na marra, qual argumento e o PONTO e qual e a FORCA
 -- amostras = { {args={...}}, ... } (do mais antigo para o mais novo)
 function NUCLEO.inferirMapa(amostras)
-  local mapa = { ponto = nil, forca = nil, n = 0 }
-  if type(amostras) ~= "table" or #amostras == 0 then return mapa end
-  local ult = amostras[#amostras].args or {}
+  mapa local = { ponto = nulo, força = nulo, n = 0 }
+  se type(amostras) ~= "table" ou #amostras == 0 então retorne mapa fim
+  local ult = amostras[#amostras].args ou {}
   mapa.n = #ult
   mapa.tipos = {}
-  for i = 1, #ult do mapa.tipos[i] = tipoDe(ult[i]) end
-  -- ponto: primeiro Vector3 cuja variacao entre amostras acompanha a bola
-  if #amostras >= 2 then
-    local a, b = amostras[#amostras - 1].args or {}, ult
-    local melhor, melhorVar = nil, 0.05
-    for i = 1, math.min(#a, #b) do
-      if tipoDe(a[i]) == "Vector3" and tipoDe(b[i]) == "Vector3" then
+  para i = 1, #ult do mapa.tipos[i] = tipoDe(ult[i]) fim
+  -- ponto: primeiro Vector3 cuja variação entre amostras acompanha a bola
+  se #amostras >= 2 então
+    local a, b = amostras[#amostras - 1].args ou {}, ult
+    local melhor, melhorVar = nulo, 0,05
+    para i = 1, math.min(#a, #b) faça
+      se tipoDe(a[i]) == "Vector3" e tipoDe(b[i]) == "Vector3" então
         local d = (b[i] - a[i]).Magnitude
-        if d > melhorVar then melhor, melhorVar = i, d end
-      end
-    end
+        se d > melhorVar então melhor, melhorVar = i, d end
+      fim
+    fim
     mapa.ponto = melhor
-    -- forca: ultimo numero que parece potencia (0..1) ou numero grande
-    for i = #ult, 1, -1 do
-      if tipoDe(ult[i]) == "number" then
+    --força: último número que parece potência (0..1) ou número grande
+    para i = #ult, 1, -1 faça
+      se tipoDe(ult[i]) == "número" então
         mapa.forca = i
-        break
-      end
-    end
-  end
-  if mapa.ponto == nil then
-    -- sem historico: primeiro Vector3 e o ponto (padrao do jogo)
-    for i = 1, #ult do
-      if tipoDe(ult[i]) == "Vector3" then mapa.ponto = i; break end
-    end
-  end
-  if mapa.forca == nil then
-    for i = 1, #ult do
-      if tipoDe(ult[i]) == "number" then mapa.forca = i; break end
-    end
-  end
-  return mapa
-end
+        quebrar
+      fim
+    fim
+  fim
+  se mapa.ponto == nil então
+    -- sem histórico: primeiro Vector3 e o ponto (padrão do jogo)
+    para i = 1, #ult faça
+      se tipoDe(ult[i]) == "Vector3" então mapa.ponto = i; interrompa fim
+    fim
+  fim
+  se mapa.forca == nil então
+    para i = 1, #ult faça
+      se tipoDe(ult[i]) == "número" então mapa.forca = i; interrompa fim
+    fim
+  fim
+  retornar mapa
+fim
 
--- plano: { ponto = Vector3, direcao = Vector3, forca = number|nil,
---          origem = Vector3|nil, trocarVetores = bool }
+-- plano: { ponto = Vetor3, direção = Vetor3, força = número|nil,
+-- origem = Vector3|nil, trocarVetores = bool }
 function NUCLEO.corrigir(args, mapa, plano)
-  local novos = {}
-  local trocas = 0
-  mapa = mapa or {}
-  plano = plano or {}
-  for i = 1, #args do
+  locais novos = {}
+  trocas locais = 0
+  mapa = mapa ou {}
+  plano = plano ou {}
+  para i = 1, #args faça
     local v = args[i]
     local t = tipoDe(v)
-    if t == "Vector3" and (mapa.ponto == nil or i >= 0) then
+    se t == "Vector3" e (mapa.ponto == nil ou i >= 0) então
       local mag = v.Magnitude
-      local ehUni = (mag > 0.9 and mag < 1.1)         -- vetor unitario = direcao
-      if i == mapa.ponto then
-        -- o argumento que o proprio jogo usa como ponto: mando a mira
-        novos[i] = plano.ponto or v
+      local ehUni = (mag > 0,9 e mag < 1,1) -- vetor unitario = direcao
+      se i == mapa.ponto então
+        -- o argumento de que o próprio jogo usa como ponto: mando a mira
+        novos[i] = plano.ponto ou v
         trocas = trocas + 1
-      elseif ehUni and plano.direcao then
-        novos[i] = plano.direcao                        -- direcao: aponta para o alvo
+      elseif ehUni e plano.direcao then
+        novos[i] = plano.direcao -- direcao: aponta para o alvo
         trocas = trocas + 1
-      elseif mapa.ponto == nil and plano.ponto then
+      elseif mapa.ponto == nil e plano.ponto então
         novos[i] = plano.ponto
         trocas = trocas + 1
-      else
+      outro
         novos[i] = v
-      end
-    elseif t == "CFrame" then
-      if mapa.ponto and i == mapa.ponto and plano.ponto and plano.origem then
+      fim
+    senão se t == "CFrame" então
+      if mapa.ponto e i == mapa.ponto e plano.ponto e plano.origem então
         novos[i] = CFrame.lookAt(plano.origem, plano.ponto)
         trocas = trocas + 1
-      else
+      outro
         novos[i] = v
-      end
-    elseif t == "number" and plano.forca and (mapa.forca == nil or i == mapa.forca) then
-      -- so troca numero que parece potencia (0..1) ou que o mapa apontou
-      if i == mapa.forca or (v >= 0 and v <= 1) then
+      fim
+    senão se t == "número" e plano.forca e (mapa.forca == nil ou i == mapa.forca) então
+      -- então troca número que parece potência (0..1) ou que o mapa indicado
+      se i == mapa.forca ou (v >= 0 e v <= 1) então
         novos[i] = plano.forca
         trocas = trocas + 1
-      else
+      outro
         novos[i] = v
-      end
-    else
+      fim
+    outro
       novos[i] = v
-    end
-  end
-  return novos, trocas
-end
+    fim
+  fim
+  retorno novos, trocas
+fim
 
 -- ---------------------------------------------------------------------
--- 5.4) previsao (usada pelo goleiro e pela corrida ate a bola)
---   devolve t, ponto  (quando e onde a bola passa por uma altura/plano)
+-- 5.4) previsão (usada pelo goleiro e pela corrida ate a bola)
+-- devolve t, ponto (quando é onde a bola passa por uma altura/plano)
 -- ---------------------------------------------------------------------
-function NUCLEO.prever(p, v, grav, alvoY, tMax, passo)
-  tMax = tMax or 3
-  passo = passo or 0.05
+função NUCLEO.prever(p, v, grav, alvoY, tMax, passo)
+  tMax = tMax ou 3
+  passo = passo ou 0,05
   local t = 0
-  local pp, vv = p, v
-  while t < tMax do
-    local y = pp.Y + vv.Y * passo + 0.5 * grav * passo * passo
+  pp local, vv = p, v
+  enquanto t < tMax faça
+    local y = pp.Y + vv.Y * passo + 0,5 * grav * passo * passo
     local x = pp.X + vv.X * passo
     local z = pp.Z + vv.Z * passo
-    if alvoY and y <= alvoY then return t, V3(x, alvoY, z) end
+    se alvoY e y <= alvoY então retorne t, V3(x, alvoY, z) fim
     pp = V3(x, y, z)
     vv = V3(vv.X, vv.Y + grav * passo, vv.Z)
     t = t + passo
-  end
-  if alvoY == nil then return tMax, pp end
-  return t, pp
-end
+  fim
+  Se alvoY == nulo, retorne tMax, pp fim
+  retornar t, pp
+fim
 
 -- corte lateral no plano do gol (para o goleiro saber para onde pular)
-function NUCLEO.corteNoPlano(p, v, grav, plano, centro, eixo, tMax)
-  local t, ponto = NUCLEO.prever(p, v, grav, nil, tMax or 2.5)
+função NUCLEO.corteNoPlano(p, v, grav, plano, centro, eixo, tMax)
+  local t, ponto = NUCLEO.prever(p, v, grav, nil, tMax ou 2,5)
   local d = (ponto - centro)
-  local alto = d.Y
+  alto local = dY
   local lado = d:Dot(eixo)
-  local cruzou = false
+  local cruzou = falso
   local pp, vv, tt = p, v, 0
-  local h = 0.05
-  local gg = grav or -196
-  while tt < (tMax or 2.5) do
-    -- Euler correto: y = y + vy*h + 0.5*g*h^2   (g negativo puxa para baixo)
+  local h = 0,05
+  local gg = gravidade ou -196
+  enquanto tt < (tMax ou 2,5) faça
+    -- Euler correto: y = y + vy*h + 0.5*g*h^2 (g negativo puxa para baixo)
     local np = V3(pp.X + vv.X * h, pp.Y + vv.Y * h + 0.5 * gg * h * h, pp.Z + vv.Z * h)
     local sinalAntes = (pp - centro):Dot(plano)
     local sinalDepois = (np - centro):Dot(plano)
-    if sinalAntes > 0 and sinalDepois <= 0 then
+    se sinalAntes > 0 e sinalDepois <= 0 então
       local d2 = (np - centro)
       -- devolve (tempo, vetor de corte, cruzou): X = deslocamento lateral
       -- no eixo do gol, Y = altura da bola quando cruzou a linha
-      return tt, V3(d2:Dot(eixo), d2.Y, sinalDepois), true
-    end
+      return tt, V3(d2:Dot(eixo), d2.Y, sinalDepois), verdadeiro
+    fim
     pp, vv, tt = np, V3(vv.X, vv.Y + gg * h, vv.Z), tt + h
-  end
+  fim
   return t, V3(lado, alto, 0), cruzou
-end
+fim
 
 -- ---------------------------------------------------------------------
 -- 5.5) passe seguro (goleiro e jogador de linha)
 -- ---------------------------------------------------------------------
-function NUCLEO.melhorPasse(o)
-  o = o or {}
-  local melhores = {}
+função NÚCLEO.melhorPasse(o)
+  o = o ou {}
+  melhores locais = {}
   local eu = o.eu
-  local maxD = num(o.alcance, 70)
-  for _, a in ipairs(o.aliados or {}) do
+  maxD local = num(o.alcance, 70)
+  para _, a em ipairs(o.aliados ou {}) faça
     local p = a.pos
-    if p and eu then
+    se p e eu então
       local d = (p - eu).Magnitude
-      if d >= 3 and d <= maxD then
-        local risco = 0
-        for _, ad in ipairs(o.adversarios or {}) do
+      se d >= 3 e d <= maxD então
+        risco local = 0
+        para _, ad em ipairs(o.adversarios ou {}) faça
           local q = ad.pos
-          if q then
-            -- distancia do adversario a linha do passe (eu -> aliado)
+          se q então
+            --distancia do adversário a linha do passe (eu -> aliado)
             local ab = p - eu
             local t = clamp((q - eu):Dot(ab) / math.max(ab:Dot(ab), 0.001), 0, 1)
             local proj = eu + ab * t
             local dLinha = (q - proj).Magnitude
-            if dLinha < 6 then risco = risco + (6 - dLinha) * 6 end
-          end
-        end
-        local ganho = 0
-        if o.gol then
-          ganho = ((o.gol - eu).Magnitude - (o.gol - p).Magnitude) * 1.2
-        end
-        melhores[#melhores + 1] = { alvo = a, ponto = p, dist = d, nota = ganho - risco - d * 0.25 }
-      end
-    end
-  end
-  table.sort(melhores, function(a, b) return a.nota > b.nota end)
-  return melhores[1]
-end
+            se dLinha < 6 então risco = risco + (6 - dLinha) * 6 fim
+          fim
+        fim
+        ganho local = 0
+        se o.gol então
+          ganho = ((o.gol - eu).Magnitude - (o.gol - p).Magnitude) * 1,2
+        fim
+        melhores[#melhores + 1] = { alvo = a, ponto = p, dist = d, nota = ganho - risco - d * 0,25 }
+      fim
+    fim
+  fim
+  tabela.sort(melhores, function(a, b) return a.nota > b.nota end)
+  retornar melhores[1]
+fim
 
 -- ---------------------------------------------------------------------
--- 5.6) O CEREBRO — a decisao do "Top 1 Global"
---   Recebe um retrato do jogo (numeros puros) e devolve a acao.
---   Regra de ouro: se o humano esta no controle, o cerebro ASSISTE;
---   ele age quando ha janela clara e sempre pelo movimento/chute reais.
+-- 5.6) O CEREBRO — a decisão do "Top 1 Global"
+-- Recebe um retrato do jogo (numeros puros) e devolve a ação.
+-- Regra de ouro: se o humano está no controle, o cérebro ASSISTE;
+-- ele envelhece quando há janela clara e sempre pelo movimento/chute reais.
 -- ---------------------------------------------------------------------
-function NUCLEO.decidir(c)
-  c = c or {}
+função NUCLEO.decidir(c)
+  c = c ou {}
   if c.ativo == false then return "PARADO", { motivo = "desligado" } end
-  -- blindagem: qualquer numero que faltar vira um padrao seguro (nunca
-  -- deixa o cerebro quebrar por causa de um campo nil)
-  local function nn(v, d) local n = tonumber(v) if n == nil then return d end return n end
+  -- blindagem: qualquer número que faltar vira um padrão seguro (nunca
+  -- deixa o cérebro quebrado por causa de um campo nulo)
+  função local nn(v, d) local n = tonumber(v) se n == nil então retorne d fim retorne n fim
   c.distAdversario = nn(c.distAdversario, 999)
   c.alcanceTackle = nn(c.alcanceTackle, 6.5)
   c.raioDrible = nn(c.raioDrible, 9)
@@ -1203,391 +1203,391 @@ function NUCLEO.decidir(c)
   c.distBola = nn(c.distBola, 0)
   c.alturaBola = nn(c.alturaBola, 0)
 
-  -- 1) goleiro tem logica propria (defesa legitima: posiciona, pula, corta)
-  if c.ehGK then
-    if c.bolaVindo then
+  -- 1) goleiro tem lógica própria (defesa legítima: posição, pula, corta)
+  se c.ehGK então
+    se c.bolaVindo então
       return "GKDEFESA", { ponto = c.pontoCorte, tempo = c.tempoCorte }
-    end
-    if c.bolaPerto and c.passeSeguro then return "GKPASSE", { alvo = c.passeAlvo } end
-    if c.bolaPerto then return "GKCORTE", {} end
+    fim
+    Se c.bolaPerto e c.passeSeguro então retorne "GKPASSE", { alvo = c.passeAlvo } fim
+    se c.bolaPerto então retorne "GKCORTE", {} fim
     return "GKPOSICIONAR", { ponto = c.pontoPoste }
-  end
+  fim
 
   -- 2) chute: bola no alcance, gol na mira, sem cooldown
-  if c.podeChutar and c.bolaAlcance and c.golNaMira and not c.pressaoImpossivel then
+  se c.podeChutar e c.bolaAlcance e c.golNaMira e não c.pressaoImpossível então
     return "CHUTAR", { canto = c.canto, curvado = c.curvado }
-  end
+  fim
 
   -- 3) cabecada/bicicleta: bola no ar e perto
-  if c.bolaAerea and c.bolaAlcance and c.podeAcao then
-    if c.alturaBola and c.alturaBola >= 7 and c.bicicleta then return "BICICLETA", {} end
-    return "CABECADA", {}
-  end
+  se c.bolaAerea e c.bolaAlcance e c.podeAcao então
+    se c.alturaBola e c.alturaBola >= 7 e c.bicicleta então retorne "BICICLETA", {} end
+    retornar "CABECADA", {}
+  fim
 
-  -- 4) tackle: adversario com a bola no meu alcance
-  if c.adversarioComBola and c.distAdversario <= c.alcanceTackle and c.podeTackle then
+  -- 4) tackle: adversário com a bola no meu alcance
+  se c.adversarioComBola e c.distAdversario <= c.alcanceTackle e c.podeTackle então
     return "TACKLE", { alvo = c.adversario }
-  end
+  fim
 
-  -- 5) tenho a bola e vem pressao: drible (finta) e depois passe
-  if c.temPosse and c.distAdversario <= c.raioDrible and c.podeDriblar then
-    return "DRIBLE", { direcao = c.fuga }
-  end
-  if c.temPosse and c.distAdversario <= c.raioPasse and c.passeSeguro and c.podePassar then
+  -- 5) tenho a bola e vem pressão: drible (finta) e depois passe
+  se c.temPosse e c.distAdversario <= c.raioDrible e c.podeDriblar então
+    return "DRIBLE", { direção = c.fuga }
+  fim
+  se c.temPosse e c.distAdversario <= c.raioPasse e c.passeSeguro e c.podePassar então
     return "PASSAR", { alvo = c.passeAlvo }
-  end
+  fim
 
-  -- 6) ultimo homem: volta para fechar o gol em vez de dar bote
-  if c.ultimoHomem and c.adversarioComBola and c.voltar then
+  -- 6) último homem: volta para fechar o gol em vez de dar bote
+  se c.ultimoHomem e c.adversarioComBola e c.voltar então
     return "DEFENDER", { ponto = c.pontoDefesa }
-  end
+  fim
 
-  -- 7) correr para a bola (com previsao de encontro, sem teleport)
-  if c.distBola and c.distBola > 1.2 then
+  -- 7) correr para a bola (com previsão de encontro, sem teletransporte)
+  se c.distBola e c.distBola > 1.2 então
     return "CORRER", { ponto = c.pontoBola, sprint = c.sprint }
-  end
-  return "PARADO", {}
-end
+  fim
+  retornar "PARADO", {}
+fim
 
 -- ---------------------------------------------------------------------
--- 5.7) plano do anti-lag (puro: so descreve o que fazer)
+-- 5.7) plano do anti-lag (puro: assim descreve o que fazer)
 -- ---------------------------------------------------------------------
-local PRESETS = {
+PREDEFINIÇÕES locais = {
   ["Ultra leve"] = {
-    sombras = true, particulas = true, decals = true, luz = true, ceu = true,
-    som = true, fisica = true, partes = true, malhas = true, distancia = 180,
-    hudJogo = false, retratos = true, animais = true, ui = true,
+    sombras = verdadeiro, particulas = verdadeiro, decalques = verdadeiro, luz = verdadeiro, ceu = verdadeiro,
+    som = verdadeiro, física = verdadeiro, partes = verdadeiro, malhas = verdadeiro, distancia = 180,
+    hudJogo = falso, retratos = verdadeiro, animais = verdadeiro, ui = verdadeiro,
   },
   ["Fraco (itel/Celular antigo)"] = {
-    sombras = true, particulas = true, decals = true, luz = true, ceu = true,
-    som = true, fisica = true, partes = true, malhas = false, distancia = 240,
-    hudJogo = false, retratos = true, animais = false, ui = false,
+    sombras = verdadeiro, particulas = verdadeiro, decalques = verdadeiro, luz = verdadeiro, ceu = verdadeiro,
+    som = verdadeiro, física = verdadeiro, partes = verdadeiro, malhas = falso, distancia = 240,
+    hudJogo = falso, retratos = verdadeiro, animais = falso, ui = falso,
   },
-  ["Medio"] = {
-    sombras = true, particulas = true, decals = true, luz = false, ceu = false,
-    som = false, fisica = false, partes = true, malhas = false, distancia = 320,
-    hudJogo = false, retratos = false, animais = false, ui = false,
+  ["Médio"] = {
+    sombras = verdadeiro, particulas = verdadeiro, decalques = verdadeiro, luz = falso, ceu = falso,
+    som = falso, física = falso, partes = verdadeiro, malhas = falso, distancia = 320,
+    hudJogo = falso, retratos = falso, animais = falso, ui = falso,
   },
-  ["PC / Leve"] = {
-    sombras = false, particulas = false, decals = false, luz = false, ceu = false,
-    som = false, fisica = false, partes = true, malhas = false, distancia = 400,
-    hudJogo = false, retratos = false, animais = false, ui = false,
+  ["PC / Nível"] = {
+    sombras = falso, particulas = falso, decalques = falso, luz = falso, ceu = falso,
+    som = falso, física = falso, partes = verdadeiro, malhas = falso, distancia = 400,
+    hudJogo = falso, retratos = falso, animais = falso, ui = falso,
   },
 }
-NUCLEO.PRESETS = PRESETS
+NUCLEO.PRESETS = PREDEFINIÇÕES
 
-function NUCLEO.planoAntilag(cfg)
-  local plano = {}
-  cfg = cfg or {}
+função NUCLEO.planoAntilag(cfg)
+  plano local = {}
+  cfg = cfg ou {}
   if cfg.sombras then plano[#plano + 1] = "sombras" end
   if cfg.particulas then plano[#plano + 1] = "particulas" end
-  if cfg.decals then plano[#plano + 1] = "decals" end
-  if cfg.luz then plano[#plano + 1] = "luz" end
-  if cfg.ceu then plano[#plano + 1] = "ceu" end
-  if cfg.fisica then plano[#plano + 1] = "fisica" end
-  if cfg.partes then plano[#plano + 1] = "partes" end
+  se cfg.decals então plano[#plano + 1] = "decals" fim
+  se cfg.luz então plano[#plano + 1] = "luz" fim
+  se cfg.ceu então plano[#plano + 1] = "ceu" fim
+  se cfg.fisica então plano[#plano + 1] = "fisica" end
+  se cfg.partes então plano[#plano + 1] = "partes" end
   if cfg.malhas then plano[#plano + 1] = "malhas" end
-  if cfg.som then plano[#plano + 1] = "som" end
-  if cfg.hudJogo then plano[#plano + 1] = "hudJogo" end
-  if cfg.retratos then plano[#plano + 1] = "retratos" end
-  if cfg.animais then plano[#plano + 1] = "animais" end
-  if cfg.ui then plano[#plano + 1] = "ui" end
-  if (cfg.distancia or 0) > 0 then plano[#plano + 1] = "distancia" end
-  return plano
-end
+  se cfg.som então plano[#plano + 1] = "som" end
+  se cfg.hudJogo então plano[#plano + 1] = "hudJogo" fim
+  se cfg.retratos então plano[#plano + 1] = "retratos" fim
+  se cfg.animais então plano[#plano + 1] = "animais" end
+  se cfg.ui então plano[#plano + 1] = "ui" fim
+  if (cfg.distancia ou 0) > 0 then plano[#plano + 1] = "distancia" end
+  plano de retorno
+fim
 
--- peca que o anti-lag NUNCA pode tocar (seguranca do jogo)
-local NUNCA = {
-  ball = true, bola = true, soccerball = true, target = true,
-  crossbar = true, backpost = true, goal = true, homegoal = true,
-  awaygoal = true, humanoid = true, head = true, torso = true,
-  ["upper torso"] = true, ["lower torso"] = true, ["left leg"] = true,
-  ["right leg"] = true, ["left arm"] = true, ["right arm"] = true,
-  humanoidrootpart = true,
+--peca que o anti-lag NUNCA pode tocar (seguranca do jogo)
+NUNCA local = {
+  bola = verdadeiro, bola = verdadeiro, bola de futebol = verdadeiro, alvo = verdadeiro,
+  travessão = verdadeiro, poste de fundo = verdadeiro, gol = verdadeiro, gol da casa = verdadeiro,
+  gol fora de casa = verdadeiro, humanoide = verdadeiro, cabeça = verdadeiro, torso = verdadeiro,
+  ["tronco superior"] = verdadeiro, ["tronco inferior"] = verdadeiro, ["perna esquerda"] = verdadeiro,
+  ["perna direita"] = verdadeiro, ["braço esquerdo"] = verdadeiro, ["braço direito"] = verdadeiro,
+  humanoidrootpart = verdadeiro,
 }
-function NUCLEO.proibido(peca, classe, nomePai)
-  local n = string.lower(tostring(peca or ""))
-  if NUNCA[n] then return true end
+função NÚCLEO.proibido(peca, classe, nomePai)
+  local n = string.lower(tostring(peca ou ""))
+  se NUNCA[n] então retorne verdadeiro fim
   local c = string.lower(tostring(classe or ""))
-  if c == "humanoid" or c == "accessory" or c == "motor6d" then return true end
-  local p = string.lower(tostring(nomePai or ""))
-  if p == "characters" or p == "players" then return true end
-  if string.find(n, "target", 1, true) or string.find(n, "goal", 1, true) then return true end
-  return false
-end
+  se c == "humanoide" ou c == "acessório" ou c == "motor6d" então retorne verdadeiro fim
+  local p = string.lower(tostring(nomePai ou ""))
+  se p == "personagens" ou p == "jogadores" então retorne verdadeiro fim
+  Se string.find(n, "target", 1, true) ou string.find(n, "goal", 1, true) então retorne verdadeiro.
+  retornar falso
+fim
 
 -- ---------------------------------------------------------------------
 -- 5.8) config em texto (salvar/carregar sem depender de JSON)
 -- ---------------------------------------------------------------------
-function NUCLEO.serializar(t)
-  local linhas = { "ARKHERSS1" }
-  local function anda(prefixo, tab)
-    local chaves = {}
-    for k in pairs(tab) do chaves[#chaves + 1] = k end
-    table.sort(chaves, function(a, b) return tostring(a) < tostring(b) end)
-    for _, k in ipairs(chaves) do
+função NUCLEO.serializar(t)
+  linhas locais = { "ARKHERSS1" }
+  função local anda(prefixo, tab)
+    local PONTO = {}
+    para k em pares(tab) faça chaves[#chaves + 1] = k fim
+    tabela.sort(chaves, função(a, b) retorna tostring(a) < tostring(b) fim)
+    para _, k em ipairs(chaves) faça
       local v = tab[k]
-      local chave = prefixo == "" and tostring(k) or (prefixo .. "." .. tostring(k))
-      if type(v) == "table" then
+      local chave = prefixo == "" e tostring(k) ou (prefixo .. "." .. tostring(k))
+      se type(v) == "table" então
         anda(chave, v)
-      elseif type(v) == "boolean" then
-        linhas[#linhas + 1] = chave .. "=" .. (v and "true" or "false")
-      elseif type(v) == "number" then
+      senão se type(v) == "boolean" então
+        linhas[#linhas + 1] = chave .. "=" .. (v e "true" ou "false")
+      senão se type(v) == "número" então
         linhas[#linhas + 1] = chave .. "=" .. tostring(v)
-      elseif type(v) == "string" then
+      senão se type(v) == "string" então
         linhas[#linhas + 1] = chave .. "=" .. v
-      end
-    end
-  end
+      fim
+    fim
+  fim
   anda("", t)
-  return table.concat(linhas, "\n")
-end
+  retornar tabela.concat(linhas, "\n")
+fim
 
 function NUCLEO.carregar(texto, destino)
-  if type(texto) ~= "string" then return destino, 0 end
-  local linhas = {}
+  se type(texto) ~= "string" então retorne destino, 0 fim
+  linhas locais = {}
   for l in string.gmatch(texto, "[^\n]+") do linhas[#linhas + 1] = l end
   if linhas[1] ~= "ARKHERSS1" then return destino, 0 end
   local n = 0
-  for i = 2, #linhas do
-    local chave, valor = string.match(linhas[i], "^([%w_%.%-]+)=(.*)$")
-    if chave then
-      local partes = {}
-      for p in string.gmatch(chave, "[^%.]+") do partes[#partes + 1] = p end
-      local no = destino
-      local ok = true
-      for j = 1, #partes - 1 do
-        if type(no[partes[j]]) ~= "table" then ok = false break end
-        no = no[partes[j]]
-      end
+  para i = 2, #linhas do
+    chave local, valor = string.match(linhas[i], "^([%w_%.%-]+)=(.*)$")
+    se chave então
+      partes locais = {}
+      para p em string.gmatch(chave, "[^%.]+") faça partes[#partes + 1] = p fim
+      local não = destino
+      local ok = verdadeiro
+      para j = 1, #partes - 1 faça
+        se type(no[partes[j]]) ~= "table" então ok = falso break fim
+        não = não[partes[j]]
+      fim
       local ult = partes[#partes]
-      if ok and no ~= nil then
+      se estiver tudo bem e não for ~= nulo então
         local atual = no[ult]
-        if type(atual) == "boolean" then
+        se type(atual) == "boolean" então
           no[ult] = (valor == "true")
           n = n + 1
-        elseif type(atual) == "number" then
-          no[ult] = tonumber(valor) or atual
+        senão se type(atual) == "número" então
+          no[ult] = tonumber(valor) ou atual
           n = n + 1
-        elseif type(atual) == "string" then
+        senão se type(atual) == "string" então
           no[ult] = valor
           n = n + 1
-        end
-      end
-    end
-  end
-  return destino, n
-end
+        fim
+      fim
+    fim
+  fim
+  retorno destino, n
+fim
 
 -- ---------------------------------------------------------------------
--- 5.9) estatistica honesta (o numero que vale e o medido no seu jogo)
+-- 5.9) estatística honesta (o número que vale e o medido no seu jogo)
 -- ---------------------------------------------------------------------
-function NUCLEO.taxa(estat)
-  local t = (estat.tentativas or 0)
-  if t <= 0 then return 0 end
-  return math.floor(((estat.chutes or 0) / t) * 1000 + 0.5) / 10
-end
+função NUCLEO.taxa(estat)
+  local t = (estat.tentativas ou 0)
+  se t <= 0 então retorne 0 fim
+  retornar math.floor(((estat.chutes or 0) / t) * 1000 + 0.5) / 10
+fim
 
-function NUCLEO.golsPorChute(estat)
-  local c = (estat.chutes or 0)
-  if c <= 0 then return 0 end
-  return math.floor(((estat.gols or 0) / c) * 1000 + 0.5) / 10
-end
+função NUCLEO.golsPorChute(estat)
+  local c = (estat.chutes ou 0)
+  se c <= 0 então retorne 0 fim
+  retornar math.floor(((estat.gols ou 0) / c) * 1000 + 0,5) / 10
+fim
 
--- ============================ 6) MOVIMENTO (sem teleport) ============================
--- Regra: o hub NUNCA muda a posicao do personagem na marra. Ele pede o
--- mesmo que o jogador pede: direcao de caminhada (Humanoid:MoveTo / Move),
--- corrida (Shift) e pulo (Espaco). O servidor ve andar normal.
+-- =========================== 6) MOVIMENTO (sem teleporte) ============================
+-- Regra: o hub NUNCA muda a posição do personagem na marra. Ele pede o
+-- mesmo que o jogador pede: direção de caminhada (Humanoid:MoveTo / Move),
+-- corrida (Shift) e pulo (Espaço). O servidor está andando normalmente.
 
 local MOVER = {}
-local function padrao(t, defs)
-  for k, v in pairs(defs) do if t[k] == nil then t[k] = v end end
-  return t
-end
-padrao(CONF.chute, { alcance = 7, alcanceAereo = 6 })
-padrao(CONF.drible, { forca = 0.55 })
-padrao(CONF.cerebro, { moverManual = true })
+função local padrao(t, defs)
+  para k, v em pares(defs) faça se t[k] == nil então t[k] = v fim fim
+  retornar t
+fim
+padrão(CONF.chute, { alcance = 7, alcanceAereo = 6 })
+padrão(CONF.drible, { força = 0,55 })
+padrão(CONF.cerebro, { moverManual = true })
 
-function MOVER.manual()
+função MOVER.manual()
   local h = MUNDO.humanoide()
-  if h then
+  se h então
     local ok, d = pcall(function() return h.MoveDirection end)
-    if ok and d and d.Magnitude > 0.15 then return true end
-  end
-  if UIS then
+    Se estiver tudo bem e d e d.Magnitude > 0,15 então retorne verdadeiro.
+  fim
+  se UIS então
     local ok, ativo = pcall(function()
-      return UIS:IsKeyDown(Enum.KeyCode.W) or UIS:IsKeyDown(Enum.KeyCode.A)
-        or UIS:IsKeyDown(Enum.KeyCode.S) or UIS:IsKeyDown(Enum.KeyCode.D)
-        or UIS:IsKeyDown(Enum.KeyCode.Thumbstick1)
-    end)
-    if ok and ativo then return true end
-  end
-  return false
-end
+      retornar UIS:IsKeyDown(Enum.KeyCode.W) ou UIS:IsKeyDown(Enum.KeyCode.A)
+        ou UIS:IsKeyDown(Enum.KeyCode.S) ou UIS:IsKeyDown(Enum.KeyCode.D)
+        ou UIS:IsKeyDown(Enum.KeyCode.Thumbstick1)
+    fim)
+    Se estiver tudo bem e ativo, retorne verdadeiro. Fim.
+  fim
+  retornar falso
+fim
 
-function MOVER.sprint(on)
-  if on then TECLA.pressionar("LeftShift") else TECLA.soltar("LeftShift") end
-end
+função MOVER.sprint(ligado)
+  se ativado então TECLA.pressionar("LeftShift") else TECLA.soltar("LeftShift") end
+fim
 
-function MOVER.pular()
+função MOVER.pular()
   local h = MUNDO.humanoide()
-  if not h then return false end
+  se não h então retorne falso fim
   local ok = pcall(function() h.Jump = true end)
-  if not ok then return TECLA.pressionar("Space") end
-  return true
-end
+  Se não estiver tudo bem, retorne TECLA.pressionar("Space") fim
+  retornar verdadeiro
+fim
 
-function MOVER.ir(ponto, forcar, sprint)
+função MOVER.ir(ponto, forcar, sprint)
   local h = MUNDO.humanoide()
   local r = MUNDO.root()
-  if not h or not r or not ponto then return false end
-  if MOVER.manual() and not forcar and CONF.cerebro.moverManual then
-    return false      -- o humano esta jogando: o cerebro assiste, nao pega o controle
-  end
-  if sprint then MOVER.sprint(true) end
+  se não for h ou não for r ou não for ponto então retorne falso fim
+  se MOVER.manual() e não forcar e CONF.cerebro.moverManual então
+    return false -- o humano está jogando: o cerebro assiste, não pega o controle
+  fim
+  se sprint então MOVER.sprint(verdadeiro) fim
   local ok = pcall(function() h:MoveTo(ponto) end)
-  if not ok then
-    local d = ponto - r.Position
-    d = V3(d.X, 0, d.Z)
-    if d.Magnitude > 0.05 then pcall(function() h:Move(d.Unit, false) end) end
-  end
-  return true
-end
+  se não estiver tudo bem então
+    local d = ponto - r.Posição
+    d = V3(dX, 0, dZ)
+    se d.Magnitude > 0.05 então pcall(function() h:Move(d.Unit, false) fim) fim
+  fim
+  retornar verdadeiro
+fim
 
-function MOVER.parar()
+função MOVER.parar()
   local h = MUNDO.humanoide()
-  if h then pcall(function() h:Move(V3(0, 0, 0), false) end) end
-  MOVER.sprint(false)
-end
+  se h então pcall(function() h:Move(V3(0, 0, 0), false) fim) fim
+  MOVER.sprint(falso)
+fim
 
 M.MOVER = MOVER
 
--- ============================ 7) JUIZ (o jogo contando o que aconteceu) ============================
--- Passive: so ESCUTA os eventos que o servidor manda para o cliente
--- (gol, falta, penalti). Serve para estatistica real e para o cerebro
+-- =========================== 7) JUIZ (o jogo contando o que aconteceu) =============================
+-- Passivo: então ESCUTA os eventos que o servidor manda para o cliente
+-- (gol, falta, penalti). Serve para estatística real e para o cérebro
 -- saber quando parar de chutar (depois do gol a bola volta ao centro).
 
 local JUIZ = {}
-local function remotePorCaminho(caminho)
-  local atual = game
-  for parte in string.gmatch(caminho, "[^%.]+") do
+função local remotaPorCaminho(caminho)
+  local atual = jogo
+  for parte in string.gmatch(caminho, "[^%.]+") faça
     local ok, filho = pcall(function() return atual:FindFirstChild(parte) end)
-    if not ok or not filho then return nil end
+    Se não estiver tudo bem ou não for filho, retorne nulo.
     atual = filho
-  end
-  return atual
-end
-M.remotePorCaminho = remotePorCaminho
+  fim
+  retornar atual
+fim
+M.remotePorCinho = remotePorCinho
 
-function JUIZ.ligar()
-  if MODO_TESTE then return end
-  ESTADO.juiz = ESTADO.juiz or { gol = 0, falta = 0, penalti = 0 }
-  local tentativas = 0
-  local function conectarRef()
+função JUIZ.ligar()
+  se MODO_TESTE então retorne fim
+  ESTADO.juiz = ESTADO.juiz ou { gol = 0, falta = 0, penalti = 0 }
+  local Ômega = 0
+  função local conectarRef()
     local ref = remotePorCaminho("Workspace.Referee.RefereeMove")
-    if not ref then return false end
+    se não for ref, retorne falso.
     ligar(ref.OnClientEvent, function(...)
-      local partes = {}
-      for i = 1, select("#", ...) do partes[#partes + 1] = tostring(select(i, ...)) end
-      local t = table.concat(partes, " ")
+      partes locais = {}
+      para i = 1, selecione("#", ...) faça partes[#partes + 1] = tostring(selecione(i, ...)) fim
+      local t = tabela.concat(partes, " ")
       local j = ESTADO.juiz
-      if string.find(t, "goal") then
-        j.gol = (j.gol or 0) + 1
+      se string.find(t, "goal") então
+        j.gol = (j.gol ou 0) + 1
         j.ultimoGol = agora()
-        -- so entra na MINHA estatistica se eu chutei nos ultimos 12s
-        if ESTADO.estat and ESTADO.ultimoChute and (agora() - ESTADO.ultimoChute) <= 12 then
-          ESTADO.estat.gols = (ESTADO.estat.gols or 0) + 1
+        -- então entra na MINHA estatística se eu chutei nos últimos 12s
+        se ESTADO.estat e ESTADO.ultimoChute e (agora() - ESTADO.ultimoChute) <= 12 então
+          ESTADO.estat.gols = (ESTADO.estat.gols ou 0) + 1
           j.meuGol = agora()
-          if CONF.geral.notificar then
+          se CONF.geral.notificar então
             avisar("GOL!", string.format("aproveitamento: %.0f%% nos chutes", NUCLEO.golsPorChute(ESTADO.estat)), nil, 3)
-          end
-        end
-      elseif string.find(t, "foul") then
-        j.falta = (j.falta or 0) + 1
+          fim
+        fim
+      senão se string.find(t, "foul") então
+        j.falta = (j.falta ou 0) + 1
         j.ultimaFalta = agora()
-      elseif string.find(t, "penalty") then
-        j.penalti = (j.penalti or 0) + 1
-      end
-    end)
+      senão se string.find(t, "penalidade") então
+        j.penalti = (j.penalti ou 0) + 1
+      fim
+    fim)
     ESTADO.juizRef = true
-    return true
-  end
-  local function conectarGui()
-    local lp = Players and Players.LocalPlayer
-    if not lp then return false end
-    local gui = lp:FindFirstChild("PlayerGui")
-    local exc = gui and gui:FindFirstChild("Exclamation")
-    if not exc then return false end
+    retornar verdadeiro
+  fim
+  função local conectarGui()
+    local lp = Players e Players.LocalPlayer
+    Se não for lp, retorne falso.
+    gui local = lp:FindFirstChild("PlayerGui")
+    local exc = gui e gui:FindFirstChild("Exclamação")
+    se não for exc, retorne falso.
     local cont = 0
-    for _, filho in ipairs(exc:GetDescendants()) do
-      if filho:IsA("RemoteEvent") and filho.Name == "RefereeMove" then
+    for _, filho em ipairs(exc:GetDescendants()) do
+      se filho:IsA("RemoteEvent") e filho.Name == "RefereeMove" então
         cont = cont + 1
         ligar(filho.OnClientEvent, function()
           ESTADO.juiz.ultimoAviso = agora()
-        end)
-      end
-    end
+        fim)
+      fim
+    fim
     ESTADO.juiz.contadores = cont
     ESTADO.juizGui = cont > 0
-    return true
-  end
-  local function tentar()
-    tentativas = tentativas + 1
-    local okRef = ESTADO.juizRef and true or conectarRef()
-    local okGui = ESTADO.juizGui and true or conectarGui()
-    if not (okRef and okGui) and tentativas < 24 then
-      adiar(5, tentar)      -- o mapa carrega depois: tenta de novo
-    end
-  end
+    retornar verdadeiro
+  fim
+  função local tentar()
+    's = centro + 1
+    local okRef = ESTADO.juizRef e true ou conectarRef()
+    local okGui = ESTADO.juizGui e true ou conectarGui()
+    se não (okRef e okGui) e tentativas < 24 então
+      adiar(5, tentar) -- o mapa carrega depois: tenta de novo
+    fim
+  fim
   tentar()
-end
+fim
 
--- o juiz roda em nivel de arquivo: se der erro aqui, o script inteiro
+-- o juiz roda em nível de arquivo: se der erro aqui, o script inteiro
 -- morre antes da interface. Por isso vai em pcall (e o hub avisa depois).
-do
+fazer
   local ok, err = pcall(JUIZ.ligar)
-  if not ok then ESTADO.erroJuiz = tostring(err) end
-end
+  se não estiver ok então ESTADO.erroJuiz = tostring(err) fim
+fim
 M.JUIZ = JUIZ
 
--- ============================ 8) ASSINATURAS (a inteligencia do hub) ============================
+-- =========================== 8) ASSINATURAS (a inteligência do hub) ============================
 
 local ASSIN = {}
 local CONHECIDOS = {
-  -- nome exato do remote  ->  chave interna
-  ShootTheBall = "shoot",
+  --nome exato do controle remoto -> chave interna
+  ShootTheBall = "atirar",
   Pass = "pass",
   Tackle = "tackle",
-  Action = "action",
+  Ação = "ação",
   GKHitbox = "gk",
-  Collect = "collect",
+  Coletar = "coletar",
   ClaimStick = "stick",
-  DailyReward = "daily",
-  WQuest = "quest",
-  Equip = "equip",
-  Jersey = "jersey",
+  RecompensaDiária = "diariamente",
+  WQuest = "missão",
+  Equipar = "equipar",
+  Jersey = "camisa",
   Avatar = "avatar",
-  Settings = "settings",
-  Unbox = "unbox",
-  Shake = "shake",
-  Faceoff = "faceoff",
-  Penalty = "penalti",
-  Position = "position",
-  isMobile = "ismobile",
-  notify = "notify",
+  Configurações = "configurações",
+  Desempacotar = "desempacotar",
+  Agitar = "agitar",
+  Confronto = "confronto",
+  Penalidade = "penalti",
+  Posição = "posição",
+  isMobile = "é móvel",
+  notificar = "notificar",
   cFactor = "cfactor",
 }
 local ISCAS = {
-  ShootTheBaII = true,        -- "i" maiusculo: isca do anti-cheat
-  AdminBan = true, Teleport = true, lancage = true, Iancage = true,
+  ShootTheBaII = true, -- "i" maiusculo: isca do anti-cheat
+  AdminBan = verdadeiro, Teleport = verdadeiro, lancage = verdadeiro, Iancage = verdadeiro,
   tcelloc = true, cfactor = true, FPSNORE = true, PINGNORE = true,
-  Save = true, CutsceneRemote = true, PodiumCamera = true,
+  Salvar = verdadeiro, CutsceneRemote = verdadeiro, PodiumCamera = verdadeiro,
   PodiumCelebration = true, SoftDisPlayer = true,
 }
 local NOMES_IGNORADOS = {
-  -- remotes de loja/resgate/admin NAO entram no chute automatico; eles tem
-  -- modulo proprio (DESBLOQUEAR) para nao dar tiro errado.
-  Purchase = true, AdminBan = true, Teleport = true,
+  -- remotes de loja/resgate/admin NAO ambos no chute automático; eles tem
+  -- modulo proprio (DESBLOQUEAR) para não dar tiro errado.
+  Compra = verdadeiro, Banimento de administrador = verdadeiro, Teletransporte = verdadeiro
 }
 
 M.REMOTES_CONHECIDOS = CONHECIDOS
@@ -1595,41 +1595,41 @@ M.REMOTES_ISCA = ISCAS
 
 local MAX_AMOSTRAS = 8
 
-function ASSIN.pasta()
-  return RS and RS:FindFirstChild("Remotes") or nil
-end
+função ASSIN.pasta()
+  retornar RS e RS:FindFirstChild("Remotes") ou nulo
+fim
 M.ASSIN = ASSIN
 
-function ASSIN.remote(chave)
+função ASSIN.remote(chave)
   -- acha o RemoteEvent/RemoteFunction pela chave, evitando os de isca
-  local alvo = nil
-  for nome, k in pairs(CONHECIDOS) do
-    if k == chave and not ISCAS[nome] then alvo = nome break end
-  end
-  if not alvo then return nil end
+  alvo local = nulo
+  para nome, k em pares(CONHECIDOS) faça
+    se k == chave e não ISCAS[nome] então alvo = nome interromper fim
+  fim
+  Se não for alvo, retorne nulo.
   local pasta = ASSIN.pasta()
-  local r = pasta and pasta:FindFirstChild(alvo) or nil
-  if not r and RS then r = RS:FindFirstChild(alvo) end
-  if r and (r:IsA("RemoteEvent") or r:IsA("RemoteFunction")) then return r, alvo end
-  return nil
-end
+  local r = pasta e pasta:FindFirstChild(alvo) ou nulo
+  se não r e RS então r = RS:FindFirstChild(alvo) fim
+  se r e (r:IsA("RemoteEvent") ou r:IsA("RemoteFunction")) então retorne r, alvo fim
+  retornar nulo
+fim
 
-function ASSIN.anotar(chave, inst, args)
+função ASSIN.anotar(chave, inst, args)
   local e = ESTADO.assinaturas[chave]
-  if not e then
+  se não e então
     e = { chave = chave, nome = inst.Name, classe = inst.ClassName, amostras = {} }
     ESTADO.assinaturas[chave] = e
-  end
-  e.nome = inst.Name
+  fim
+  e.nome = nome da instância
   e.classe = inst.ClassName
   e.quando = agora()
   e.amostras[#e.amostras + 1] = { args = args, quando = agora() }
   while #e.amostras > MAX_AMOSTRAS do table.remove(e.amostras, 1) end
-  e.mapa = NUCLEO.inferirMapa(e.amostras)
-  e.registros = (e.registros or 0) + 1
-  if M.LOG then
-    local tipos = table.concat(e.mapa.tipos or {}, ",")
-    print(string.format("[ARKHER] assinatura %s: %s (ponto=%s forca=%s)",
+  e.mapa = NÚCLEO.inferirMapa(e.amostras)
+  e.registros = (e.registros ou 0) + 1
+  se M.LOG então
+    tipos locais = table.concat(e.mapa.tipos ou {}, ",")
+    print(string.format("[ARKHER] assinatura %s: %s (ponto=%s força=%s)",
       chave, tipos, tostring(e.mapa.ponto), tostring(e.mapa.forca)))
   end
   return e
