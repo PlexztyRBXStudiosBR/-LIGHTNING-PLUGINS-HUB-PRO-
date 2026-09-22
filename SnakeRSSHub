@@ -65,17 +65,23 @@ pcall(function()
     IS_MOBILE = UserInputService.TouchEnabled and (not UserInputService.KeyboardEnabled)
 end)
 
--- VirtualInputManager = aperta teclas/clicks REAIS (o jogo obedece 100%)
+-- VirtualInputManager: no Delta, um teste artificial com F24 pode falhar mesmo
+-- quando teclas/cliques reais funcionam. Por isso validamos o SERVICO e mostramos
+-- no diagnostico o resultado do ultimo input enviado de verdade.
 local VIM = nil
 local VIM_OK = false
+local VIM_LAST_INPUT = "nenhum input enviado ainda"
+local VIM_LAST_OK = false
 -- Impede que uma tecla virtual do hub dispare o proprio atalho do hub de novo.
 local VIM_EMITTING = 0
-pcall(function()
-    VIM = game:GetService("VirtualInputManager")
-    -- teste inofensivo: solta uma tecla que ninguem usa
-    VIM:SendKeyEvent(false, Enum.KeyCode.F24, false, game)
-    VIM_OK = true
+local gotVim, vimService = pcall(function()
+    return game:GetService("VirtualInputManager")
 end)
+if gotVim and vimService ~= nil then
+    VIM = vimService
+    VIM_OK = true
+    VIM_LAST_INPUT = "servico encontrado; aguardando teste real"
+end
 
 --[[ ============================ CONFIGURACOES ============================= ]]
 local Config = {
@@ -271,7 +277,9 @@ end
 
 -- Aperta uma tecla REAL do jogo (Q/E/X/F/Espaco) - funciona em PC e mobile
 local function pressKey(keycode, holdTime)
-    if not VIM_OK then
+    if not VIM_OK or VIM == nil then
+        VIM_LAST_OK = false
+        VIM_LAST_INPUT = "tecla bloqueada: VirtualInputManager indisponivel"
         return false
     end
     -- nao aperta tecla enquanto digita no chat
@@ -280,6 +288,8 @@ local function pressKey(keycode, holdTime)
         focused = UserInputService:GetFocusedTextBox() ~= nil
     end)
     if focused then
+        VIM_LAST_OK = false
+        VIM_LAST_INPUT = "tecla nao enviada: caixa de texto esta em foco"
         return false
     end
     VIM_EMITTING = VIM_EMITTING + 1
@@ -288,8 +298,12 @@ local function pressKey(keycode, holdTime)
     end)
     if not ok then
         VIM_EMITTING = math.max(0, VIM_EMITTING - 1)
+        VIM_LAST_OK = false
+        VIM_LAST_INPUT = "falhou ao enviar tecla " .. tostring(keycode)
         return false
     end
+    VIM_LAST_OK = true
+    VIM_LAST_INPUT = "tecla enviada: " .. tostring(keycode)
     task.delay(holdTime or 0.12, function()
         pcall(function()
             VIM:SendKeyEvent(false, keycode, false, game)
@@ -301,7 +315,9 @@ end
 
 -- Click REAL do mouse numa posicao da tela (x, y em pixels)
 local function clickAt(x, y, button, holdTime)
-    if not VIM_OK then
+    if not VIM_OK or VIM == nil then
+        VIM_LAST_OK = false
+        VIM_LAST_INPUT = "clique bloqueado: VirtualInputManager indisponivel"
         return false
     end
     button = button or 0
@@ -313,8 +329,12 @@ local function clickAt(x, y, button, holdTime)
         VIM:SendMouseButtonEvent(x, y, button, true, game, 0)
     end)
     if not ok then
+        VIM_LAST_OK = false
+        VIM_LAST_INPUT = "falhou ao enviar clique virtual"
         return false
     end
+    VIM_LAST_OK = true
+    VIM_LAST_INPUT = "clique enviado: " .. (button == 0 and "Mouse1" or "Mouse2")
     task.delay(holdTime or 0.15, function()
         pcall(function()
             VIM:SendMouseButtonEvent(x, y, button, false, game, 0)
@@ -565,6 +585,60 @@ local function ballNameScore(name)
     return 0
 end
 
+local function lowerInstancePath(inst)
+    local path = ""
+    pcall(function()
+        path = string.lower(inst:GetFullName())
+    end)
+    return path
+end
+
+local function containerBallScore(name)
+    local n = string.lower(name or "")
+    -- "SoccerBalls" e similares sao colecoes/decoracoes; nao contam como bola ativa.
+    if n == "ball" or n == "football" or n == "matchball" or n == "match ball" then
+        return 80
+    end
+    return 0
+end
+
+local function activeBallScore(inst, model)
+    if not inst or not inst:IsA("BasePart") then
+        return -1000
+    end
+    local path = lowerInstancePath(inst)
+    if string.sub(path, 1, 10) ~= "workspace." then
+        return -1000
+    end
+    local score = ballNameScore(inst.Name)
+    if model then
+        score = score + containerBallScore(model.Name)
+    end
+    if inst.Parent == workspace then
+        score = score + 150
+    end
+    if inst.Anchored then
+        score = score - 100
+    else
+        score = score + 120
+    end
+    if inst:IsA("Part") then
+        pcall(function()
+            if inst.Shape == Enum.PartType.Ball then
+                score = score + 40
+            end
+        end)
+    end
+    -- Objetos de lobby, vitrine, trofeu, sombra e estadio nunca devem vencer.
+    local rejectWords = { ".lobby.", ".soccerballs.", "trophy", "leaderboard", "shadow", ".map.", "spawn" }
+    for _, word in ipairs(rejectWords) do
+        if string.find(path, word, 1, true) then
+            score = score - 350
+        end
+    end
+    return score
+end
+
 local function considerBall(d)
     if not d or not d.Parent then
         return
@@ -583,15 +657,8 @@ local function considerBall(d)
     if d.Parent and d.Parent:FindFirstChildOfClass("Humanoid") then
         return
     end
-    local score = ballNameScore(d.Name)
-    -- Bola sem nome tambem pode aparecer como Part redonda e solta.
-    local round = false
-    if d:IsA("Part") then
-        pcall(function()
-            round = d.Shape == Enum.PartType.Ball
-        end)
-    end
-    if (score >= 60 or round) and (not BallPart or not BallPart.Parent) then
+    local score = activeBallScore(d)
+    if score >= 100 and (not BallPart or not BallPart.Parent) then
         BallPart = d
     end
 end
@@ -614,6 +681,29 @@ local function goalNameHit(name)
         or string.find(n, "crossbar", 1, true) or string.find(n, "goalpost", 1, true)
 end
 
+local function isPlayableGoalPart(part)
+    if not part or not part:IsA("BasePart") then
+        return false
+    end
+    local path = lowerInstancePath(part)
+    if string.sub(path, 1, 10) ~= "workspace." then
+        return false
+    end
+    -- O mapa reportado possui HomeGoal/AwayGoal; filtros removem detectores e UI do lobby.
+    local rightGoal = string.find(path, "workspace.homegoal.", 1, true)
+        or string.find(path, "workspace.awaygoal.", 1, true)
+    if not rightGoal then
+        return false
+    end
+    local rejectWords = { "antiown", "detector", "preventor", "position", "goalie", "leaderboard", ".lobby." }
+    for _, word in ipairs(rejectWords) do
+        if string.find(path, word, 1, true) then
+            return false
+        end
+    end
+    return true
+end
+
 -- Gols podem chegar depois com StreamingEnabled. Mantem o cache local atualizado
 -- por evento, sem precisar de outra varredura pesada.
 local function considerGoal(d)
@@ -626,7 +716,7 @@ local function considerGoal(d)
     elseif d:IsA("Model") and goalNameHit(d.Name) then
         part = d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart", true)
     end
-    if not part then
+    if not part or not isPlayableGoalPart(part) then
         return
     end
     local model = nil
@@ -672,14 +762,7 @@ local function initialScan()
     local best, bestScore = nil, 0
     for _, d in ipairs(desc) do
         if d:IsA("BasePart") then
-            local s = ballNameScore(d.Name)
-            if d:IsA("Part") then
-                pcall(function()
-                    if d.Shape == Enum.PartType.Ball then
-                        s = s + 40
-                    end
-                end)
-            end
+            local s = activeBallScore(d)
             if s > bestScore then
                 local skip = d.Parent and d.Parent:FindFirstChildOfClass("Humanoid")
                 if not skip then
@@ -687,14 +770,17 @@ local function initialScan()
                     best = d
                 end
             end
-            if goalNameHit(d.Name) and #GoalsList < 24 then
+            if isPlayableGoalPart(d) and #GoalsList < 24 then
                 table.insert(GoalsList, d)
             end
         elseif d:IsA("Model") and ballNameScore(d.Name) >= 60 and not best then
             local pp = d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart", true)
             if pp then
-                best = pp
-                bestScore = 60
+                local s = activeBallScore(pp, d)
+                if s > bestScore then
+                    best = pp
+                    bestScore = s
+                end
             end
         end
     end
@@ -707,14 +793,21 @@ local function findBall()
     if ManualBallLock and ManualBallLock.Parent then
         return ManualBallLock
     end
-    if BallPart and BallPart.Parent then
+    -- Atalho sem GetFullName no tick: a bola viva desta partida e Workspace.ball.
+    if BallPart and BallPart.Parent == workspace and not BallPart.Anchored
+        and string.lower(BallPart.Name) == "ball" then
         return BallPart
     end
-    -- perdemos a bola: atalho O(1) antes de qualquer varredura
-    local quick = workspace:FindFirstChild("Ball") or workspace:FindFirstChild("Football")
-    if quick and quick:IsA("BasePart") then
+    -- A bola ativa deste jogo fica em Workspace.ball (minusculo); ela tem
+    -- prioridade sobre qualquer cache antigo de bola decorativa do Lobby.
+    local quick = workspace:FindFirstChild("ball") or workspace:FindFirstChild("Ball")
+        or workspace:FindFirstChild("Football")
+    if quick and quick:IsA("BasePart") and activeBallScore(quick) >= 100 then
         BallPart = quick
         return quick
+    end
+    if BallPart and BallPart.Parent then
+        return BallPart
     end
     -- re-varredura de emergencia: no maximo 1x a cada 5s
     local now = os.clock()
@@ -2367,7 +2460,8 @@ local function diagString()
     else
         table.insert(lines, "Explorer auto: aguardando varredura inicial...")
     end
-    table.insert(lines, "Teclas reais (VIM): " .. (VIM_OK and "SIM" or "NAO"))
+    table.insert(lines, "VIM disponivel: " .. (VIM_OK and "SIM" or "NAO")
+        .. " | Ultimo input: " .. VIM_LAST_INPUT)
     table.insert(lines, "Entrada de acao: " .. Config.VimActionMode .. " | Chute: " .. Config.VimShootInput)
     table.insert(lines, "Chute calibrado: " .. (Config.Calibrated and ("SIM (" .. (ShootSigs[Config.ShootSig] and ShootSigs[Config.ShootSig].desc or "?") .. ")") or "NAO - nao usado no VIM somente"))
     table.insert(lines, "Motor: " .. Config.CombatHz .. "Hz | Erros contidos: " .. ErrorCount)
@@ -2684,35 +2778,19 @@ local function explorerBallScore(inst, model, hasHumanoid)
     if not inst:IsA("BasePart") or hasHumanoid then
         return -1
     end
-    local score = ballNameScore(inst.Name)
-    if model then
-        score = score + ballNameScore(model.Name)
-    end
-    if isRoundPart(inst) then
-        score = score + 40
-    end
-    pcall(function()
-        local magnitude = inst.Size.Magnitude
-        if magnitude >= 1 and magnitude <= 12 then
-            score = score + 14
-        end
-        if not inst.Anchored then
-            score = score + 8
-        end
-    end)
-    return score
+    return activeBallScore(inst, model)
 end
 
 local function explorerGoalScore(inst, model, hasHumanoid)
-    if not inst:IsA("BasePart") or hasHumanoid then
+    if not inst:IsA("BasePart") or hasHumanoid or not isPlayableGoalPart(inst) then
         return -1
     end
-    local score = 0
-    if goalNameHit(inst.Name) then
-        score = score + 100
-    end
-    if model and goalNameHit(model.Name) then
-        score = score + 80
+    local score = 300
+    local n = string.lower(inst.Name)
+    if string.find(n, "crossbar", 1, true) then
+        score = score + 200
+    elseif string.find(n, "goalpost", 1, true) or string.find(n, "post", 1, true) then
+        score = score + 120
     end
     return score
 end
@@ -2834,7 +2912,7 @@ local function scanVisibleExplorer()
             elseif inst:IsA("BasePart") then
                 local model, hasHumanoid = getExplorerModelInfo(inst, parentModelCache)
                 local ballScore = explorerBallScore(inst, model, hasHumanoid)
-                if ballScore >= 40 then
+                if ballScore >= 100 then
                     ballTotal = ballTotal + 1
                     keepTopScoredRow(ballRows, {
                         instance = inst,
@@ -2874,12 +2952,23 @@ local function scanVisibleExplorer()
 
     GoalsList = {}
     local seen = {}
+    -- Prefere as traves horizontais reais de HomeGoal/AwayGoal, em vez de
+    -- detectores, posicoes de goleiro ou pecas auxiliares do estadio.
     for _, row in ipairs(goalRows) do
-        if row.instance and row.instance.Parent and not seen[row.instance] then
+        if row.score >= 500 and row.instance and row.instance.Parent and not seen[row.instance] then
             seen[row.instance] = true
             table.insert(GoalsList, row.instance)
-            if #GoalsList >= 24 then
-                break
+        end
+    end
+    -- Fallback para jogos que nao nomeiam a trave como Crossbar.
+    if #GoalsList == 0 then
+        for _, row in ipairs(goalRows) do
+            if row.instance and row.instance.Parent and not seen[row.instance] then
+                seen[row.instance] = true
+                table.insert(GoalsList, row.instance)
+                if #GoalsList >= 2 then
+                    break
+                end
             end
         end
     end
