@@ -16,7 +16,7 @@
     3) Fique com a bola no pe e aperte CALIBRAR CHUTE (1 vez)
     4) Ative TOP 1 GLOBAL e jogue. No lag? Aba Ajustes > ANTI-LAG ULTRA
     5) Botao semitransparente AUTO SHOOT aparece sozinho na tela
-    6) Aba Inicio > MAPEAR EXPLORER gera a estrutura real do jogo
+    6) Detector automatico le o Explorer visivel; use DETECTAR TUDO para reescanear
     ----------------------------------------------------------------------------
     AVISO: use por sua conta e risco. Exploits podem gerar punicao no jogo.
 ============================================================================= ]]
@@ -357,12 +357,51 @@ local Remotes = {
     SpinShoes  = SafeFind(ReplicatedStorage, "SpinnerContentsShoes"),
     SpeedRemote = nil,
 }
+-- Nomes conhecidos: a leitura e refeita depois do carregamento do jogo.
+-- Isto apenas encontra Instancias ja replicadas; nunca chama nenhum remote.
+local KnownRemoteNames = {
+    Shoot = "ShootTheBall", ShootAlt = "ShootTheBaII", Pass = "Pass", Tackle = "Tackle",
+    Action = "Action", Curve = "cfactor", GKHitbox = "GKHitbox", Faceoff = "Faceoff",
+    Penalty = "Penalty", Position = "Position", TeamChange = "TeamChange", TeleportR = "Teleport",
+    SettingsR = "Settings", Avatar = "Avatar", Jersey = "Jersey", Equip = "Equip", Unbox = "Unbox",
+    ClaimStick = "ClaimStick", Collect = "Collect", TCellLoc = "tcelloc", Daily = "ClaimReward",
+    DailyEv = "DailyReward", WQuest = "WQuest", RedeemCode = "RedeemCode",
+    Cutscene = "CutsceneRemote", PodiumCam = "PodiumCamera", PodiumCel = "PodiumCelebration",
+    Shake = "Shake", FPSNORE = "FPSNORE", PINGNORE = "PINGNORE", AFK = "AFKRemote",
+    Purchase = "Purchase", ShopEvent = "ShopEvent", ShopReset = "ResetShop",
+    SoftDis = "SoftDisPlayer", IsMobile = "isMobile", NotifyR = "notify",
+    WorldCup = "GetWorldCupClaims", RedeemWC = "RedeemWorldCupCard",
+    SelectWC = "SelectWorldCupCard", SpinCards = "SpinnerContentsCards",
+    SpinDrib = "SpinnerContentsDribble", SpinGoalie = "SpinnerContentsGoalie",
+    SpinShoes = "SpinnerContentsShoes",
+}
+
 local RemoteCount = 0
-for _, r in pairs(Remotes) do
-    if r ~= nil then
-        RemoteCount = RemoteCount + 1
+local function refreshKnownRemoteCount()
+    RemoteCount = 0
+    for _, r in pairs(Remotes) do
+        if r ~= nil and r.Parent ~= nil then
+            RemoteCount = RemoteCount + 1
+        end
     end
 end
+
+local function refreshKnownRemotes()
+    -- Alguns jogos replicam seus remotes alguns segundos depois de game.Loaded.
+    -- Fazemos somente lookup por NOME dos remotes ja suportados pela V3.
+    for key, name in pairs(KnownRemoteNames) do
+        local current = Remotes[key]
+        if current == nil or current.Parent == nil then
+            local found = SafeFind(ReplicatedStorage, name)
+            if found ~= nil then
+                Remotes[key] = found
+            end
+        end
+    end
+    refreshKnownRemoteCount()
+end
+
+refreshKnownRemotes()
 
 task.spawn(function()
     local ok, pgui = pcall(function()
@@ -370,8 +409,31 @@ task.spawn(function()
     end)
     if ok and pgui then
         Remotes.SpeedRemote = SafeFind(pgui, "Speed")
+        refreshKnownRemoteCount()
     end
 end)
+
+-- Atualiza os caminhos conhecidos se o jogo os criar tardiamente.
+-- Debounce evita dezenas de FindFirstChild recursivos quando uma pasta inteira replica.
+local RemoteRefreshQueued = false
+local function queueKnownRemoteRefresh()
+    if RemoteRefreshQueued then
+        return
+    end
+    RemoteRefreshQueued = true
+    task.delay(0.25, function()
+        RemoteRefreshQueued = false
+        if Running then
+            refreshKnownRemotes()
+        end
+    end)
+end
+track(ReplicatedStorage.DescendantAdded:Connect(function(d)
+    local c = d.ClassName
+    if c == "RemoteEvent" or c == "RemoteFunction" or c == "UnreliableRemoteEvent" then
+        queueKnownRemoteRefresh()
+    end
+end))
 
 --[[ ============ SENSORES LEVES (EVENTO, SEM VARREDURA PESADA) ============= ]]
 -- A V3 rastreia a bola por EVENTO: 1 varredura no inicio + ouvintes.
@@ -381,6 +443,23 @@ local BallPart = nil
 local ManualBallLock = nil
 local GoalsList = {}
 local LastFullRescan = 0
+
+-- Estado do detector automatico. Ele so le a arvore que ja foi replicada
+-- para este cliente; objetos exclusivos do servidor nao sao visiveis aqui.
+local ExplorerScan = {
+    Running = false,
+    Complete = false,
+    Objects = 0,
+    VisibleRemotes = 0,
+    BallCandidates = 0,
+    GoalCandidates = 0,
+    GoalsIndexed = 0,
+    BoundRemotes = 0,
+    BallPath = "",
+    FullLines = 0,
+    ReportTruncated = false,
+    LastError = "",
+}
 
 local function ballNameScore(name)
     local n = string.lower(name)
@@ -424,7 +503,14 @@ local function considerBall(d)
         return
     end
     local score = ballNameScore(d.Name)
-    if score >= 60 and (not BallPart or not BallPart.Parent) then
+    -- Bola sem nome tambem pode aparecer como Part redonda e solta.
+    local round = false
+    if d:IsA("Part") then
+        pcall(function()
+            round = d.Shape == Enum.PartType.Ball
+        end)
+    end
+    if (score >= 60 or round) and (not BallPart or not BallPart.Parent) then
         BallPart = d
     end
 end
@@ -447,6 +533,53 @@ local function goalNameHit(name)
         or string.find(n, "crossbar", 1, true) or string.find(n, "goalpost", 1, true)
 end
 
+-- Gols podem chegar depois com StreamingEnabled. Mantem o cache local atualizado
+-- por evento, sem precisar de outra varredura pesada.
+local function considerGoal(d)
+    if not d or not d.Parent then
+        return
+    end
+    local part = nil
+    if d:IsA("BasePart") then
+        part = d
+    elseif d:IsA("Model") and goalNameHit(d.Name) then
+        part = d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart", true)
+    end
+    if not part then
+        return
+    end
+    local model = nil
+    pcall(function()
+        model = part:FindFirstAncestorOfClass("Model")
+    end)
+    if model and model:FindFirstChildOfClass("Humanoid") then
+        return
+    end
+    local isGoal = goalNameHit(part.Name)
+    if not isGoal then
+        isGoal = model ~= nil and goalNameHit(model.Name)
+    end
+    if not isGoal then
+        return
+    end
+    for _, known in ipairs(GoalsList) do
+        if known == part then
+            return
+        end
+    end
+    if #GoalsList < 24 then
+        table.insert(GoalsList, part)
+        if ExplorerScan.Complete then
+            ExplorerScan.GoalsIndexed = #GoalsList
+        end
+    end
+end
+track(workspace.DescendantAdded:Connect(function(d)
+    if Running then
+        considerGoal(d)
+    end
+end))
+
 -- UNICA varredura completa: 1x no inicio (+ botao manual). Leve e rapido.
 local function initialScan()
     local ok, desc = pcall(function()
@@ -459,6 +592,13 @@ local function initialScan()
     for _, d in ipairs(desc) do
         if d:IsA("BasePart") then
             local s = ballNameScore(d.Name)
+            if d:IsA("Part") then
+                pcall(function()
+                    if d.Shape == Enum.PartType.Ball then
+                        s = s + 40
+                    end
+                end)
+            end
             if s > bestScore then
                 local skip = d.Parent and d.Parent:FindFirstChildOfClass("Humanoid")
                 if not skip then
@@ -2147,16 +2287,24 @@ local function diagString()
     local lines = {}
     table.insert(lines, "FPS: " .. FPSValue .. " | Ping: " .. ping .. "ms")
     table.insert(lines, "Bola: " .. ballTxt)
-    table.insert(lines, "Remotes: " .. RemoteCount .. " | Chute: " .. shootTxt)
+    table.insert(lines, "Remotes conhecidos: " .. RemoteCount .. " | Chute: " .. shootTxt)
+    if ExplorerScan.Complete then
+        table.insert(lines, "Explorer auto: " .. ExplorerScan.Objects .. " objs | "
+            .. ExplorerScan.VisibleRemotes .. " remotes | " .. ExplorerScan.GoalsIndexed .. " gols")
+    elseif ExplorerScan.Running then
+        table.insert(lines, "Explorer auto: escaneando tudo que o cliente ve...")
+    else
+        table.insert(lines, "Explorer auto: aguardando varredura inicial...")
+    end
     table.insert(lines, "Teclas reais (VIM): " .. (VIM_OK and "SIM" or "NAO"))
     table.insert(lines, "Chute calibrado: " .. (Config.Calibrated and ("SIM (" .. (ShootSigs[Config.ShootSig] and ShootSigs[Config.ShootSig].desc or "?") .. ")") or "NAO - calibre!"))
     table.insert(lines, "Motor: " .. Config.CombatHz .. "Hz | Erros contidos: " .. ErrorCount)
     return table.concat(lines, "\n")
 end
 
---[[ ==================== MAPEADOR DO EXPLORER (1 clique) =================== ]]
--- Varre o jogo e mostra a ESTRUTURA REAL: remotes, bola, workspace, PlayerGui.
--- Copie o resultado e envie para fixar os caminhos exatos no script.
+--[[ ================= DETECTOR DO EXPLORER (automatico + reescaneio) ======== ]]
+-- A leitura completa inicia sozinha; o botao abre um relatorio/snapshot opcional.
+-- Ela ve apenas a estrutura ja replicada para o cliente.
 local Mapping = false
 
 -- Copia robusta: tenta TODOS os metodos de clipboard dos executors
@@ -2403,88 +2551,411 @@ local function showCopyWindow(title, text)
     end)
 end
 
-local function mapExplorer()
-    if Mapping then
-        notify("Mapeador", "Ja estou mapeando, aguarde.", 2)
+--[[ =================== DETECTOR AUTOMATICO DO EXPLORER =================== ]]
+-- Le somente a arvore de Instances ja replicada para este cliente. Nao le
+-- scripts, nao chama remotes e nao altera nenhuma Instance durante a varredura.
+local function isRemoteInstance(inst)
+    if not inst then
+        return false
+    end
+    local class = inst.ClassName
+    return class == "RemoteEvent" or class == "RemoteFunction"
+        or class == "UnreliableRemoteEvent" or class == "BindableEvent"
+        or class == "BindableFunction"
+end
+
+local function safeFullName(inst)
+    local ok, path = pcall(function()
+        return inst:GetFullName()
+    end)
+    if ok and type(path) == "string" and #path > 0 then
+        return path
+    end
+    return "<objeto removido>"
+end
+
+-- Cache por pai direto: campos grandes tem muitas partes no mesmo Modelo.
+local function getExplorerModelInfo(inst, cache)
+    local parent = inst.Parent
+    if parent and cache[parent] then
+        local info = cache[parent]
+        return info.model, info.hasHumanoid
+    end
+    local model = nil
+    pcall(function()
+        model = inst:FindFirstAncestorOfClass("Model")
+    end)
+    local hasHumanoid = false
+    if model then
+        pcall(function()
+            hasHumanoid = model:FindFirstChildOfClass("Humanoid") ~= nil
+        end)
+    end
+    if parent then
+        cache[parent] = { model = model, hasHumanoid = hasHumanoid }
+    end
+    return model, hasHumanoid
+end
+
+local function isRoundPart(inst)
+    if not inst:IsA("Part") then
+        return false
+    end
+    local round = false
+    pcall(function()
+        round = inst.Shape == Enum.PartType.Ball
+    end)
+    return round
+end
+
+local function explorerBallScore(inst, model, hasHumanoid)
+    if not inst:IsA("BasePart") or hasHumanoid then
+        return -1
+    end
+    local score = ballNameScore(inst.Name)
+    if model then
+        score = score + ballNameScore(model.Name)
+    end
+    if isRoundPart(inst) then
+        score = score + 40
+    end
+    pcall(function()
+        local magnitude = inst.Size.Magnitude
+        if magnitude >= 1 and magnitude <= 12 then
+            score = score + 14
+        end
+        if not inst.Anchored then
+            score = score + 8
+        end
+    end)
+    return score
+end
+
+local function explorerGoalScore(inst, model, hasHumanoid)
+    if not inst:IsA("BasePart") or hasHumanoid then
+        return -1
+    end
+    local score = 0
+    if goalNameHit(inst.Name) then
+        score = score + 100
+    end
+    if model and goalNameHit(model.Name) then
+        score = score + 80
+    end
+    return score
+end
+
+local function remoteTags(name)
+    local n = string.lower(name)
+    local tags = {}
+    local function add(word, tag)
+        if string.find(n, word, 1, true) then
+            table.insert(tags, tag)
+        end
+    end
+    add("shoot", "chute")
+    add("kick", "chute")
+    add("pass", "passe")
+    add("tackle", "tackle")
+    add("drib", "drible")
+    add("action", "acao")
+    add("goal", "gol")
+    add("team", "time")
+    add("stamina", "stamina")
+    add("afk", "afk")
+    add("shop", "loja")
+    if #tags == 0 then
+        return ""
+    end
+    return " [" .. table.concat(tags, ",") .. "]"
+end
+
+local function sortedKeys(tbl)
+    local keys = {}
+    for key in pairs(tbl) do
+        table.insert(keys, key)
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+    return keys
+end
+
+local function sortByScore(a, b)
+    if a.score == b.score then
+        return a.path < b.path
+    end
+    return a.score > b.score
+end
+
+-- Mantem somente os melhores candidatos sem deixar uma arena grande consumir RAM.
+local function keepTopScoredRow(rows, row, limit)
+    if #rows < limit then
+        table.insert(rows, row)
+        return
+    end
+    local worst = 1
+    for i = 2, #rows do
+        if sortByScore(rows[worst], rows[i]) then
+            worst = i
+        end
+    end
+    if sortByScore(row, rows[worst]) then
+        rows[worst] = row
+    end
+end
+
+-- Percorre toda a arvore client-side, mas limita somente o TAMANHO do arquivo
+-- de catalogo para nao congelar celulares fracos. A contagem percorre todos.
+local function scanVisibleExplorer()
+    if ExplorerScan.Running then
+        return nil, nil, "Ja existe uma varredura em andamento."
+    end
+
+    ExplorerScan.Running = true
+    ExplorerScan.Complete = false
+    ExplorerScan.LastError = ""
+
+    local ok, descendants = pcall(function()
+        return game:GetDescendants()
+    end)
+    if not ok then
+        ExplorerScan.Running = false
+        ExplorerScan.LastError = "Nao foi possivel ler a arvore do jogo."
+        return nil, nil, ExplorerScan.LastError
+    end
+
+    local rootCounts, classCounts = {}, {}
+    local remoteRows, ballRows, goalRows = {}, {}, {}
+    local remoteTotal, ballTotal, goalTotal = 0, 0, 0
+    local parentModelCache = {}
+    local catalog = { "== SNAKEHUB SNAPSHOT DO EXPLORER (CLIENTE) ==" }
+    local MAX_CATALOG_LINES = 12000
+    local MAX_REMOTE_ROWS = 1200
+    local MAX_BALL_ROWS = 250
+    local MAX_GOAL_ROWS = 250
+    local catalogTruncated = false
+    local total = #descendants
+
+    for index, inst in ipairs(descendants) do
+        if inst and inst.Parent then
+            local path = safeFullName(inst)
+            local root = string.match(path, "^([^.]+)") or "?"
+            rootCounts[root] = (rootCounts[root] or 0) + 1
+            classCounts[inst.ClassName] = (classCounts[inst.ClassName] or 0) + 1
+
+            if #catalog < MAX_CATALOG_LINES then
+                table.insert(catalog, inst.ClassName .. " | " .. path)
+            else
+                catalogTruncated = true
+            end
+
+            if isRemoteInstance(inst) then
+                remoteTotal = remoteTotal + 1
+                if #remoteRows < MAX_REMOTE_ROWS then
+                    table.insert(remoteRows, {
+                        path = path,
+                        class = inst.ClassName,
+                        name = inst.Name,
+                    })
+                end
+            elseif inst:IsA("BasePart") then
+                local model, hasHumanoid = getExplorerModelInfo(inst, parentModelCache)
+                local ballScore = explorerBallScore(inst, model, hasHumanoid)
+                if ballScore >= 40 then
+                    ballTotal = ballTotal + 1
+                    keepTopScoredRow(ballRows, {
+                        instance = inst,
+                        path = path,
+                        score = ballScore,
+                        anchored = inst.Anchored,
+                    }, MAX_BALL_ROWS)
+                end
+                local goalScore = explorerGoalScore(inst, model, hasHumanoid)
+                if goalScore >= 70 then
+                    goalTotal = goalTotal + 1
+                    keepTopScoredRow(goalRows, {
+                        instance = inst,
+                        path = path,
+                        score = goalScore,
+                    }, MAX_GOAL_ROWS)
+                end
+            end
+        end
+        -- Cede tempo ao jogo para a interface continuar responsiva em celular.
+        if index % 300 == 0 then
+            task.wait()
+        end
+    end
+
+    table.sort(remoteRows, function(a, b)
+        return a.path < b.path
+    end)
+    table.sort(ballRows, sortByScore)
+    table.sort(goalRows, sortByScore)
+
+    -- Aplica somente identificacoes visuais/locais. Nunca dispara um Remote.
+    local bestBall = ballRows[1]
+    if bestBall and bestBall.score >= 40 and not (ManualBallLock and ManualBallLock.Parent) then
+        BallPart = bestBall.instance
+    end
+
+    GoalsList = {}
+    local seen = {}
+    for _, row in ipairs(goalRows) do
+        if row.instance and row.instance.Parent and not seen[row.instance] then
+            seen[row.instance] = true
+            table.insert(GoalsList, row.instance)
+            if #GoalsList >= 24 then
+                break
+            end
+        end
+    end
+
+    -- Recheca apenas os nomes ja suportados, pois podem ter aparecido tarde.
+    refreshKnownRemotes()
+
+    ExplorerScan.Objects = total
+    ExplorerScan.VisibleRemotes = remoteTotal
+    ExplorerScan.BallCandidates = ballTotal
+    ExplorerScan.GoalCandidates = goalTotal
+    ExplorerScan.GoalsIndexed = #GoalsList
+    ExplorerScan.BoundRemotes = RemoteCount
+    ExplorerScan.BallPath = BallPart and BallPart.Parent and safeFullName(BallPart) or "(nao encontrada)"
+    ExplorerScan.FullLines = #catalog - 1
+    ExplorerScan.ReportTruncated = catalogTruncated
+    ExplorerScan.Complete = true
+    ExplorerScan.Running = false
+
+    local out = {}
+    local function line(text)
+        table.insert(out, text)
+    end
+    line("== SNAKEHUB DETECTOR AUTOMATICO ==")
+    line("PlaceId: " .. tostring(game.PlaceId))
+    line("Objetos visiveis ao cliente: " .. total)
+    line("IMPORTANTE: servidor/objetos nao replicados nao aparecem para nenhum Explorer client-side.")
+    line("")
+    line("== APLICADO AUTOMATICAMENTE (SEM CHAMAR REMOTES) ==")
+    line("Bola selecionada: " .. ExplorerScan.BallPath)
+    line("Candidatos de bola: " .. ballTotal)
+    line("Candidatos de gol: " .. goalTotal .. " | Gols indexados: " .. #GoalsList)
+    line("Remotes visiveis: " .. remoteTotal)
+    line("Remotes conhecidos atualizados: " .. RemoteCount)
+    line("")
+
+    line("== CANDIDATOS A BOLA (TOP 30) ==")
+    if #ballRows == 0 then
+        line("Nenhum candidato forte encontrado. Fique perto da bola e use TRAVAR BOLA.")
+    else
+        for i = 1, math.min(#ballRows, 30) do
+            local row = ballRows[i]
+            line(i .. ". score=" .. row.score .. " | anc=" .. tostring(row.anchored) .. " | " .. row.path)
+        end
+    end
+    line("")
+
+    line("== GOLS DETECTADOS (TOP 30) ==")
+    if #goalRows == 0 then
+        line("Nenhum nome/modelo de gol foi encontrado na arvore atual.")
+    else
+        for i = 1, math.min(#goalRows, 30) do
+            local row = goalRows[i]
+            line(i .. ". score=" .. row.score .. " | " .. row.path)
+        end
+    end
+    line("")
+
+    line("== TODOS OS REMOTES VISIVEIS (TOP 180) ==")
+    if #remoteRows == 0 then
+        line("Nenhum RemoteEvent/RemoteFunction replicado nesta sessao.")
+    else
+        for i = 1, math.min(#remoteRows, 180) do
+            local row = remoteRows[i]
+            line(row.class .. " | " .. row.path .. remoteTags(row.name))
+        end
+        if remoteTotal > 180 then
+            line("... " .. (remoteTotal - 180) .. " remotes adicionais detectados.")
+        end
+        if remoteTotal > #remoteRows then
+            line("A memoria exibiu " .. #remoteRows .. " paths de remote; o total acima foi contado inteiro.")
+        end
+    end
+    line("")
+
+    line("== OBJETOS POR SERVICO ==")
+    for _, root in ipairs(sortedKeys(rootCounts)) do
+        line(root .. ": " .. rootCounts[root])
+    end
+    line("")
+
+    line("== CLASSES MAIS COMUNS ==")
+    local classes = {}
+    for class, count in pairs(classCounts) do
+        table.insert(classes, { class = class, count = count })
+    end
+    table.sort(classes, function(a, b)
+        if a.count == b.count then
+            return a.class < b.class
+        end
+        return a.count > b.count
+    end)
+    for i = 1, math.min(#classes, 25) do
+        line(classes[i].class .. ": " .. classes[i].count)
+    end
+    line("")
+    line("== SNAPSHOT COMPLETO ==")
+    if catalogTruncated then
+        line("O scanner percorreu " .. total .. " objetos, mas o TXT guardou os primeiros "
+            .. ExplorerScan.FullLines .. " para nao travar o celular.")
+    else
+        line("O TXT contem os " .. ExplorerScan.FullLines .. " paths visiveis nesta varredura.")
+    end
+    line("O detector e passivo: nao le Source, nao chama remote e nao muda objetos.")
+    line("== FIM ==")
+
+    return table.concat(out, "\n"), table.concat(catalog, "\n"), nil
+end
+
+local function runExplorerDetector(openWindow)
+    if Mapping or ExplorerScan.Running then
+        notify("Detector", "Ja estou detectando os objetos visiveis, aguarde.", 3)
         return
     end
     Mapping = true
-    notify("Mapeador", "Mapeando o jogo (pode travar 2s)...", 3)
+    if openWindow then
+        notify("Detector", "Lendo todo o Explorer visivel (o jogo continua responsivo)...", 4)
+    end
     task.spawn(function()
-        local out = {}
-        local function line(s)
-            table.insert(out, s)
-        end
-        pcall(function()
-            line("== SNAKEHUB MAPA DO JOGO ==")
-            line("PlaceId: " .. tostring(game.PlaceId))
-            line("")
-            line("== REMOTES (ReplicatedStorage) ==")
-            local n = 0
-            for _, d in ipairs(ReplicatedStorage:GetDescendants()) do
-                if d:IsA("RemoteEvent") or d:IsA("RemoteFunction")
-                    or d:IsA("UnreliableRemoteEvent") or d:IsA("BindableEvent") then
-                    n = n + 1
-                    if n <= 150 then
-                        line(d.ClassName .. " | " .. d:GetFullName())
-                    end
-                end
-            end
-            line("Total remotes: " .. n)
-            line("")
-            line("== WORKSPACE (filhos diretos) ==")
-            local kids = workspace:GetChildren()
-            for i = 1, math.min(#kids, 120) do
-                local k = kids[i]
-                line(k.ClassName .. " | " .. k.Name)
-            end
-            line("Total filhos: " .. #kids)
-            line("")
-            line("== CANDIDATOS A BOLA ==")
-            local nb = 0
-            for _, d in ipairs(workspace:GetDescendants()) do
-                if d:IsA("BasePart") and nb < 40 then
-                    local par = d.Parent
-                    local isChar = par and par:FindFirstChildOfClass("Humanoid")
-                    if not isChar then
-                        local s = ballNameScore(d.Name)
-                        local isBallShape = (d.Shape == Enum.PartType.Ball)
-                        local sz = d.Size.Magnitude
-                        if s > 0 or isBallShape or (not d.Anchored and sz > 1 and sz < 5) then
-                            nb = nb + 1
-                            line(d.Name .. " | " .. d:GetFullName()
-                                .. " | size=" .. string.format("%.1f", sz)
-                                .. " | anc=" .. tostring(d.Anchored))
-                        end
-                    end
-                end
-            end
-            line("Total candidatos: " .. nb)
-            line("")
-            line("== GOLS (cache do script) ==")
-            for i, g in ipairs(GoalsList) do
-                if g.Parent then
-                    line(i .. ". " .. g:GetFullName())
-                end
-            end
-            line("")
-            line("== PLAYERGUI ==")
-            local pgui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-            if pgui then
-                for _, k in ipairs(pgui:GetChildren()) do
-                    line(k.ClassName .. " | " .. k.Name)
-                end
-                local stam = pgui:FindFirstChild("Stamina", true)
-                if stam then
-                    line("Stamina PATH: " .. stam:GetFullName())
-                end
-            end
-            line("")
-            line("== FIM ==")
-        end)
+        local ok, report, catalog, err = pcall(scanVisibleExplorer)
         Mapping = false
-        showCopyWindow("MAPA DO JOGO (copie e envie)", table.concat(out, "\n"))
+        if not ok then
+            ExplorerScan.Running = false
+            ExplorerScan.Complete = false
+            ExplorerScan.LastError = tostring(report)
+            notify("Detector", "Falhou: " .. ExplorerScan.LastError, 5)
+            return
+        end
+        if not report then
+            notify("Detector", "Falhou: " .. tostring(err or "erro desconhecido"), 5)
+            return
+        end
+        if openWindow then
+            local saved = trySaveFile("snakehub_explorer_snapshot.txt", catalog)
+            if saved then
+                report = report .. "\n\nSNAPSHOT salvo automaticamente em snakehub_explorer_snapshot.txt"
+            end
+            showCopyWindow("DETECTOR AUTO (relatorio)", report)
+        else
+            notify("Detector", "Pronto: " .. ExplorerScan.Objects .. " objetos, "
+                .. ExplorerScan.VisibleRemotes .. " remotes e " .. ExplorerScan.GoalsIndexed .. " gols.", 5)
+        end
     end)
+end
+
+-- Mantido como nome do callback existente para Rayfield e Mini UI.
+local function mapExplorer()
+    runExplorerDetector(true)
 end
 
 --[[ ============================ MINI UI (NATIVA) ========================== ]]
@@ -2694,7 +3165,7 @@ local function buildMiniUI()
         updateMiniStatus()
         notify("Diagnostico", diagString(), 6)
     end)
-    y = miniActionBtn(scroll, y, "MAPEAR JOGO", Color3.fromRGB(0, 150, 150), mapExplorer)
+    y = miniActionBtn(scroll, y, "DETECTAR TUDO", Color3.fromRGB(0, 150, 150), mapExplorer)
     y = miniActionBtn(scroll, y, "FECHAR (motor continua)", Color3.fromRGB(80, 80, 90), function()
         g.Enabled = false
         setUiVisible(false)
@@ -2718,6 +3189,19 @@ end
 --[[ ================= INICIALIZACAO DO MOTOR (ANTES DA UI) ================= ]]
 -- O motor liga PRIMEIRO: mesmo se a interface falhar, as features funcionam.
 initialScan()
+-- O detector completo inicia sozinho em segundo plano; nao abre janela nem copia nada.
+task.delay(2, function()
+    if Running then
+        runExplorerDetector(false)
+    end
+end)
+-- Um segundo passe condicional cobre jogos que ainda estavam carregando o campo.
+task.delay(10, function()
+    local noBall = not (BallPart and BallPart.Parent)
+    if Running and not ExplorerScan.Running and (noBall or ExplorerScan.GoalsIndexed == 0) then
+        runExplorerDetector(false)
+    end
+end)
 buildFloatButtons()
 
 --[[ ======================= CARREGADOR DO RAYFIELD ========================= ]]
@@ -2810,7 +3294,7 @@ else
                 end,
             })
             T:CreateButton({
-                Name = "MAPEAR EXPLORER DO JOGO",
+                Name = "DETECTAR TUDO DO EXPLORER",
                 Callback = mapExplorer,
             })
             T:CreateSection("Ativacao rapida")
