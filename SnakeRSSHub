@@ -3,7 +3,7 @@
     ----------------------------------------------------------------------------
     VERSAO CORRIGIDA + ULTRA LEVE para celular fraco (ex: Itel A70)
     - Motor reescrito: sensores por EVENTO (sem varredura pesada), tick leve
-    - Metodo duplo: TECLAS REAIS simuladas (VIM) + remotes com AUTO-CALIBRACAO
+    - Entrada VIM real configuravel (Delta): botoes emitem tecla/clique de PC
     - Anti-lag: modo ULTRA, modo Batata, Mini UI nativa, FPS adaptativo
     - Diagnostico na tela: bola, remotes, VIM, FPS (voce ve o que funciona)
     ----------------------------------------------------------------------------
@@ -13,7 +13,7 @@
     COMO USAR:
     1) Entre no jogo, execute este script no executor
     2) Aperte DIAGNOSTICO (aba Inicio) para ver o status
-    3) Fique com a bola no pe e aperte CALIBRAR CHUTE (1 vez)
+    3) No Delta, o padrao e VIM somente; ajuste as teclas em Ajustes se o jogo usar outras
     4) Ative TOP 1 GLOBAL e jogue. No lag? Aba Ajustes > ANTI-LAG ULTRA
     5) Botao semitransparente AUTO SHOOT aparece sozinho na tela
     6) Detector automatico le o Explorer visivel; use DETECTAR TUDO para reescanear
@@ -68,6 +68,8 @@ end)
 -- VirtualInputManager = aperta teclas/clicks REAIS (o jogo obedece 100%)
 local VIM = nil
 local VIM_OK = false
+-- Impede que uma tecla virtual do hub dispare o proprio atalho do hub de novo.
+local VIM_EMITTING = 0
 pcall(function()
     VIM = game:GetService("VirtualInputManager")
     -- teste inofensivo: solta uma tecla que ninguem usa
@@ -83,11 +85,20 @@ local Config = {
     FloatShoot = true,
     FloatAutoShoot = true, -- botao exclusivo semitransparente (aparece sozinho)
 
-    -- Metodos de disparo (o segredo da V3)
-    VimKeys = true,        -- usa teclas reais (Q/E/X/F) - mais confiavel
-    DoubleFire = true,     -- dispara tecla + remote juntos (maximo efeito)
-    ShootMethod = "Auto",  -- Auto | Remote | Tecla Real (VIM)
-    ShootSig = 1,          -- assinatura calibrada do chute
+    -- Entrada real (Delta / VirtualInputManager)
+    -- VIM somente = botoes do hub emitem input normal de PC, sem chamar RemoteEvent.
+    VimKeys = true,
+    VimActionMode = "VIM somente", -- VIM somente | VIM + remoto legado
+    DoubleFire = true,              -- usado somente no modo legado
+    VimShootInput = "Mouse1",      -- input PC real do chute
+    VimPassInput = "Mouse2",       -- input PC real do passe
+    VimDribbleInput = "Q",
+    VimTackleInput = "E",
+    VimDiveInput = "X",
+    VimPowerInput = "F",
+    VimJumpInput = "Space",
+    ShootMethod = "Tecla Real (VIM)", -- Auto | Remote | Tecla Real (VIM)
+    ShootSig = 1,                   -- assinatura calibrada do chute legado
     ShootRemoteAlt = false,-- usar ShootTheBaII em vez do principal
     Calibrated = false,
 
@@ -271,16 +282,19 @@ local function pressKey(keycode, holdTime)
     if focused then
         return false
     end
+    VIM_EMITTING = VIM_EMITTING + 1
     local ok = pcall(function()
         VIM:SendKeyEvent(true, keycode, false, game)
     end)
     if not ok then
+        VIM_EMITTING = math.max(0, VIM_EMITTING - 1)
         return false
     end
     task.delay(holdTime or 0.12, function()
         pcall(function()
             VIM:SendKeyEvent(false, keycode, false, game)
         end)
+        VIM_EMITTING = math.max(0, VIM_EMITTING - 1)
     end)
     return true
 end
@@ -307,6 +321,73 @@ local function clickAt(x, y, button, holdTime)
         end)
     end)
     return true
+end
+
+--[[ =================== ADAPTADOR DE ENTRADA PC (VIM) ====================== ]]
+-- Os botoes do hub chamam esta camada. No modo VIM somente ela NAO envia
+-- RemoteEvents: apenas a mesma tecla/clique que um jogador PC usaria.
+local function vimOnlyMode()
+    return Config.VimActionMode == "VIM somente"
+end
+
+local function bindingForAction(action)
+    if action == "Shoot" then
+        return Config.VimShootInput
+    elseif action == "Pass" then
+        return Config.VimPassInput
+    elseif action == "Dribble" then
+        return Config.VimDribbleInput
+    elseif action == "Tackle" then
+        return Config.VimTackleInput
+    elseif action == "Dive" then
+        return Config.VimDiveInput
+    elseif action == "Power" then
+        return Config.VimPowerInput
+    elseif action == "Jump" then
+        return Config.VimJumpInput
+    end
+    return nil
+end
+
+local function vimScreenPoint(worldTarget)
+    local cam = workspace.CurrentCamera
+    if not cam then
+        return nil, nil
+    end
+    local size = cam.ViewportSize
+    local x, y = size.X / 2, size.Y / 2
+    if worldTarget then
+        local screen, visible = cam:WorldToScreenPoint(worldTarget)
+        if visible then
+            x = math.clamp(screen.X, 20, size.X - 20)
+            y = math.clamp(screen.Y, 20, size.Y - 20)
+        end
+    end
+    return x, y
+end
+
+local function emitVimBinding(binding, holdTime, worldTarget)
+    if not Config.VimKeys or not VIM_OK or not binding then
+        return false
+    end
+    if binding == "Mouse1" or binding == "Mouse2" then
+        local x, y = vimScreenPoint(worldTarget)
+        if not x then
+            return false
+        end
+        return clickAt(x, y, binding == "Mouse1" and 0 or 1, holdTime)
+    end
+    local ok, keycode = pcall(function()
+        return Enum.KeyCode[binding]
+    end)
+    if not ok or not keycode then
+        return false
+    end
+    return pressKey(keycode, holdTime)
+end
+
+local function emitGameAction(action, holdTime, worldTarget)
+    return emitVimBinding(bindingForAction(action), holdTime, worldTarget)
 end
 
 --[[ ============================ MAPA DE REMOTES =========================== ]]
@@ -1030,8 +1111,8 @@ local function doShootRemote(powerOverride, useCurveOverride, perfect)
     return ok, "ok"
 end
 
--- Chute por CLICK REAL na posicao do gol na tela (metodo alternativo)
-local function doShootVIM(powerHold)
+-- Chute por input VIM real configuravel (Mouse1 ou tecla PC escolhida)
+local function doShootVIM(powerHold, perfect)
     local _, hrp = myChar()
     local ball = findBall()
     if not hrp or not ball then
@@ -1040,40 +1121,32 @@ local function doShootVIM(powerHold)
     if not hasBall(6.5) then
         return false, "sem-bola"
     end
-    local aim = computeAim(Config.TopGlobal)
+    local aim = computeAim(perfect == true or Config.TopGlobal)
     if not aim then
         return false, "sem-mira"
     end
     if (aim - hrp.Position).Magnitude > Config.ShootDist then
         return false, "longe"
     end
-    faceTowards(aim)
-    local cam = workspace.CurrentCamera
-    if not cam then
-        return false, "sem-camera"
+    if not vimOnlyMode() then
+        faceTowards(aim)
     end
-    local sp, onScreen = cam:WorldToScreenPoint(aim)
-    local vs = cam.ViewportSize
-    local x, y = vs.X / 2, vs.Y / 2
-    if onScreen then
-        x = math.clamp(sp.X, 20, vs.X - 20)
-        y = math.clamp(sp.Y, 20, vs.Y - 20)
-    end
-    -- forca = tempo segurando (0.15 leve ... 0.9 bomba)
-    local hold = 0.15 + (powerHold or 100) / 100 * 0.75
-    return clickAt(x, y, 0, hold), "ok"
+    -- Forca = tempo segurando o input configurado (mouse ou tecla PC).
+    local hold = 0.15 + (powerHold or Config.Power or 100) / 100 * 0.75
+    local did = emitGameAction("Shoot", hold, aim)
+    return did, did and "ok" or "vim-indisponivel"
 end
 
 local function doShoot(powerOverride, useCurveOverride, perfect)
     local method = Config.ShootMethod
-    if method == "Tecla Real (VIM)" then
-        return doShootVIM(powerOverride)
+    if vimOnlyMode() or method == "Tecla Real (VIM)" then
+        return doShootVIM(powerOverride, perfect)
     end
-    -- Auto / Remote: usa a assinatura calibrada
+    -- Modo legado opcional: usa a assinatura calibrada.
     return doShootRemote(powerOverride, useCurveOverride, perfect)
 end
 
--- AUTO-CALIBRACAO: chuta de varios jeitos e ve qual mexe a bola de verdade
+-- AUTO-CALIBRACAO LEGADA: so e usada quando o usuario sai do modo VIM somente.
 local Calibrating = false
 local function calibrateShoot()
     if Calibrating then
@@ -1088,6 +1161,10 @@ local function calibrateShoot()
     end
     if not hasBall(6.5) then
         notify("Calibracao", "Fique PARADO com a bola no pe e tente de novo.", 4)
+        return
+    end
+    if vimOnlyMode() then
+        notify("Entrada VIM", "Modo VIM somente ativo: use CHUTAR AGORA para enviar o input real do jogo.", 5)
         return
     end
     Calibrating = true
@@ -1155,7 +1232,7 @@ local function calibrateShoot()
 end
 
 --[[ ============================ ACOES DE JOGO ============================= ]]
--- Prioridade: TECLA REAL (VIM) + remote junto = funciona em qualquer caso.
+-- VIM somente: envia apenas input PC normal. Modo legado pode usar fallback remoto.
 
 local function doDribble()
     local _, hrp = myChar()
@@ -1165,11 +1242,8 @@ local function doDribble()
     if not (Config.ZeroDelay and Config.TopGlobal) then
         task.wait(0.04)
     end
-    local did = false
-    if Config.VimKeys and VIM_OK then
-        did = pressKey(Enum.KeyCode.Q, 0.15) or did
-    end
-    if (not did) or Config.DoubleFire then
+    local did = emitGameAction("Dribble", 0.15)
+    if not vimOnlyMode() and ((not did) or Config.DoubleFire) then
         if Remotes.Action then
             local ok = fire(Remotes.Action, "Dribble", math.random(1, 3))
             if Config.CompatMode and Config.DribbleStyle == "Agressivo" then
@@ -1178,12 +1252,14 @@ local function doDribble()
             did = ok or did
         end
     end
-    -- corte de corpo lateral (fisica local, sempre funciona)
-    pcall(function()
-        local side = (math.random() > 0.5) and 1 or -1
-        local push = hrp.CFrame.RightVector * (11 * side)
-        hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + push
-    end)
+    -- O modo VIM somente deixa a fisica para o proprio jogo, como no PC normal.
+    if not vimOnlyMode() then
+        pcall(function()
+            local side = (math.random() > 0.5) and 1 or -1
+            local push = hrp.CFrame.RightVector * (11 * side)
+            hrp.AssemblyLinearVelocity = hrp.AssemblyLinearVelocity + push
+        end)
+    end
     return did
 end
 
@@ -1195,7 +1271,9 @@ local function doTackle(targetChar)
     if targetChar then
         local tHrp = charHrp(targetChar)
         if tHrp then
-            faceTowards(tHrp.Position)
+            if not vimOnlyMode() then
+                faceTowards(tHrp.Position)
+            end
             if Config.LegitTackle then
                 task.wait(0.03)
             end
@@ -1204,11 +1282,8 @@ local function doTackle(targetChar)
     if not (Config.ZeroDelay and Config.TopGlobal) then
         task.wait(0.04)
     end
-    local did = false
-    if Config.VimKeys and VIM_OK then
-        did = pressKey(Enum.KeyCode.E, 0.12) or did
-    end
-    if (not did) or Config.DoubleFire then
+    local did = emitGameAction("Tackle", 0.12)
+    if not vimOnlyMode() and ((not did) or Config.DoubleFire) then
         did = fire(Remotes.Tackle) or did
     end
     return did
@@ -1224,11 +1299,8 @@ local function doDive(side)
     if not (Config.ZeroDelay and Config.TopGlobal) then
         task.wait(0.04)
     end
-    local did = false
-    if Config.VimKeys and VIM_OK then
-        did = pressKey(Enum.KeyCode.X, 0.2) or did
-    end
-    if (not did) or Config.DoubleFire then
+    local did = emitGameAction("Dive", 0.2)
+    if not vimOnlyMode() and ((not did) or Config.DoubleFire) then
         if Remotes.Action then
             did = fire(Remotes.Action, "GKDive", side) or did
             if Config.CompatMode then
@@ -1238,7 +1310,7 @@ local function doDive(side)
         if Remotes.GKHitbox then
             fire(Remotes.GKHitbox, ball.Position)
         end
-    elseif Remotes.GKHitbox then
+    elseif not vimOnlyMode() and Remotes.GKHitbox then
         fire(Remotes.GKHitbox, ball.Position)
     end
     return did
@@ -1262,20 +1334,18 @@ local function doGKPass()
         return false
     end
     local target = mHrp.Position + mHrp.Velocity * 0.25
-    faceTowards(target)
+    if not vimOnlyMode() then
+        faceTowards(target)
+    end
+    if vimOnlyMode() then
+        return emitGameAction("Pass", 0.4, target)
+    end
     local ok = fire(Remotes.Pass, target, 70)
     if not ok then
         ok = fire(Remotes.Pass, target)
     end
-    if (not ok) and Config.VimKeys and VIM_OK then
-        -- passe por clique direito REAL no companheiro
-        local cam = workspace.CurrentCamera
-        if cam then
-            local sp, onScreen = cam:WorldToScreenPoint(target)
-            if onScreen then
-                ok = clickAt(sp.X, sp.Y, 1, 0.4)
-            end
-        end
+    if not ok then
+        ok = emitGameAction("Pass", 0.4, target)
     end
     return ok
 end
@@ -1285,14 +1355,16 @@ local function doJump()
     if not hum then
         return false
     end
+    if vimOnlyMode() then
+        return emitGameAction("Jump", 0.1)
+    end
     local did = false
     pcall(function()
         hum.Jump = true
         did = true
     end)
     if (not did) and VIM_OK then
-        pressKey(Enum.KeyCode.Space, 0.1)
-        did = true
+        did = emitGameAction("Jump", 0.1)
     end
     return did
 end
@@ -1309,7 +1381,7 @@ local function doHeader()
         return false
     end
     doJump()
-    if Remotes.Action then
+    if not vimOnlyMode() and Remotes.Action then
         fire(Remotes.Action, "Header")
         if Config.CompatMode then
             fire(Remotes.Action, "Head")
@@ -1335,7 +1407,7 @@ local function doBicycle()
         return false
     end
     doJump()
-    if Remotes.Action then
+    if not vimOnlyMode() and Remotes.Action then
         fire(Remotes.Action, "Bicycle")
         if Config.CompatMode then
             fire(Remotes.Action, "BicycleKick")
@@ -1343,11 +1415,7 @@ local function doBicycle()
     end
     task.delay(0.15, function()
         if Running and hasBall(7.5) then
-            if Config.VimKeys and VIM_OK and Config.ShootMethod == "Tecla Real (VIM)" then
-                doShootVIM(100)
-            else
-                doShoot(100, true, Config.TopGlobal)
-            end
+            doShoot(100, true, Config.TopGlobal)
         end
     end)
     return true
@@ -1364,7 +1432,7 @@ local function doVolley()
     if d > 6 or h < 0.5 or h > 4.5 then
         return false
     end
-    if Remotes.Action and Config.CompatMode then
+    if not vimOnlyMode() and Remotes.Action and Config.CompatMode then
         fire(Remotes.Action, "Volley")
     end
     local ok = doShoot(100, false, Config.TopGlobal)
@@ -1382,7 +1450,12 @@ local function doChip()
         return false
     end
     local aim = goalPos + Vector3.new(0, 4.5, 0)
-    faceTowards(aim)
+    if not vimOnlyMode() then
+        faceTowards(aim)
+    end
+    if vimOnlyMode() then
+        return emitGameAction("Shoot", 0.35, aim)
+    end
     fireCurve(false)
     return fire(shootRemote(), aim, 28)
 end
@@ -1395,22 +1468,20 @@ local function doPowerShot()
     if not hasBall(6) then
         return false, "sem-bola"
     end
-    -- Power Shot REAL: segura F + clica (igual jogador humano)
-    if VIM_OK then
-        pcall(function()
-            VIM:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-        end)
-        task.wait(0.25)
-        local ok = doShootVIM(100)
-        task.delay(0.3, function()
-            pcall(function()
-                VIM:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-            end)
-        end)
-        if ok then
-            Cooldown.PowerShot = now
-            return true, "ok"
+    -- Segura a entrada PC configurada para power e executa o input de chute.
+    if Config.VimKeys and VIM_OK then
+        local held = emitGameAction("Power", 0.55)
+        if held then
+            task.wait(0.25)
+            local ok = doShootVIM(100, true)
+            if ok then
+                Cooldown.PowerShot = now
+                return true, "ok"
+            end
         end
+    end
+    if vimOnlyMode() then
+        return false, "vim-indisponivel"
     end
     local ok2, reason = doShoot(100, true, true)
     if ok2 then
@@ -1933,7 +2004,7 @@ local function combatTick()
     end
 
     -- 7) AIM LOCK
-    if Config.AimLock and ballDistMe <= 5 and not TOP then
+    if Config.AimLock and ballDistMe <= 5 and not TOP and not vimOnlyMode() then
         local aim = computeAim(false)
         if aim then
             softSteer(aim, 0.8)
@@ -1941,7 +2012,7 @@ local function combatTick()
     end
 
     -- 8) TOP GLOBAL: mira 99% + espelho + movimento PRO
-    if TOP then
+    if TOP and not vimOnlyMode() then
         if ballDistMe <= 5.5 then
             local aim = computeAim(true)
             if aim then
@@ -2116,7 +2187,7 @@ track(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
 end))
 
 track(UserInputService.InputBegan:Connect(function(input, gpe)
-    if not Running then
+    if not Running or VIM_EMITTING > 0 then
         return
     end
     if input.UserInputType ~= Enum.UserInputType.Keyboard then
@@ -2297,7 +2368,8 @@ local function diagString()
         table.insert(lines, "Explorer auto: aguardando varredura inicial...")
     end
     table.insert(lines, "Teclas reais (VIM): " .. (VIM_OK and "SIM" or "NAO"))
-    table.insert(lines, "Chute calibrado: " .. (Config.Calibrated and ("SIM (" .. (ShootSigs[Config.ShootSig] and ShootSigs[Config.ShootSig].desc or "?") .. ")") or "NAO - calibre!"))
+    table.insert(lines, "Entrada de acao: " .. Config.VimActionMode .. " | Chute: " .. Config.VimShootInput)
+    table.insert(lines, "Chute calibrado: " .. (Config.Calibrated and ("SIM (" .. (ShootSigs[Config.ShootSig] and ShootSigs[Config.ShootSig].desc or "?") .. ")") or "NAO - nao usado no VIM somente"))
     table.insert(lines, "Motor: " .. Config.CombatHz .. "Hz | Erros contidos: " .. ErrorCount)
     return table.concat(lines, "\n")
 end
@@ -3364,19 +3436,19 @@ else
             if not T then
                 return
             end
-            T:CreateSection("Calibracao (faca 1 vez)")
+            T:CreateSection("Entrada real Delta / VIM")
             T:CreateParagraph({
-                Title = "Por que calibrar?",
-                Content = "A calibracao descobre o formato exato de chute do servidor. Fique PARADO com a bola no pe e aperte o botao."
+                Title = "VIM somente e o padrao",
+                Content = "CHUTAR AGORA envia Mouse1 virtual. Em Ajustes, escolha outra tecla/clique se o PC do jogo usar outro controle."
             })
             T:CreateButton({
-                Name = "CALIBRAR CHUTE AGORA",
+                Name = "CALIBRAR REMOTE (modo legado)",
                 Callback = calibrateShoot,
             })
             T:CreateDropdown({
-                Name = "Metodo de chute",
-                Options = { "Auto", "Remote", "Tecla Real (VIM)" },
-                CurrentOption = "Auto",
+                Name = "Metodo de chute (modo legado)",
+                Options = { "Tecla Real (VIM)", "Auto", "Remote" },
+                CurrentOption = "Tecla Real (VIM)",
                 Flag = "S_Method3",
                 Callback = function(opt)
                     Config.ShootMethod = normOpt(opt, "Auto")
@@ -4262,9 +4334,13 @@ else
                     TickInterval = 1 / v
                 end,
             })
-            T:CreateSection("Metodo de disparo")
+            T:CreateSection("Entrada real (Delta / VIM)")
+            T:CreateParagraph({
+                Title = "Botoes = input PC normal",
+                Content = "VIM somente envia apenas tecla/clique virtual configurado nas acoes mapeadas; sem RemoteEvent, CFrame ou fisica local.",
+            })
             T:CreateToggle({
-                Name = "Teclas reais (VIM)",
+                Name = "Ativar entrada VIM (Delta)",
                 CurrentValue = true,
                 Flag = "S_Vim3",
                 Callback = function(v)
@@ -4274,8 +4350,71 @@ else
                     end
                 end,
             })
+            T:CreateDropdown({
+                Name = "Modo das acoes",
+                Options = { "VIM somente", "VIM + remoto legado" },
+                CurrentOption = "VIM somente",
+                Flag = "S_VimMode3",
+                Callback = function(opt)
+                    Config.VimActionMode = normOpt(opt, "VIM somente")
+                end,
+            })
+            T:CreateDropdown({
+                Name = "Input PC: chute",
+                Options = { "Mouse1", "Mouse2", "Q", "E", "R", "F", "G", "H", "Space" },
+                CurrentOption = "Mouse1",
+                Flag = "S_VimShoot3",
+                Callback = function(opt)
+                    Config.VimShootInput = normOpt(opt, "Mouse1")
+                end,
+            })
+            T:CreateDropdown({
+                Name = "Input PC: drible",
+                Options = { "Q", "E", "R", "F", "X", "C", "Z", "Mouse1" },
+                CurrentOption = "Q",
+                Flag = "S_VimDrib3",
+                Callback = function(opt)
+                    Config.VimDribbleInput = normOpt(opt, "Q")
+                end,
+            })
+            T:CreateDropdown({
+                Name = "Input PC: tackle",
+                Options = { "E", "Q", "R", "F", "X", "C", "Z", "Mouse1" },
+                CurrentOption = "E",
+                Flag = "S_VimTackle3",
+                Callback = function(opt)
+                    Config.VimTackleInput = normOpt(opt, "E")
+                end,
+            })
+            T:CreateDropdown({
+                Name = "Input PC: mergulho",
+                Options = { "X", "Q", "E", "R", "F", "C", "Z", "Mouse1" },
+                CurrentOption = "X",
+                Flag = "S_VimDive3",
+                Callback = function(opt)
+                    Config.VimDiveInput = normOpt(opt, "X")
+                end,
+            })
+            T:CreateDropdown({
+                Name = "Input PC: power shot",
+                Options = { "F", "Q", "E", "R", "X", "C", "Z" },
+                CurrentOption = "F",
+                Flag = "S_VimPower3",
+                Callback = function(opt)
+                    Config.VimPowerInput = normOpt(opt, "F")
+                end,
+            })
+            T:CreateDropdown({
+                Name = "Input PC: passe",
+                Options = { "Mouse2", "Mouse1", "Q", "E", "R", "F", "G", "Space" },
+                CurrentOption = "Mouse2",
+                Flag = "S_VimPass3",
+                Callback = function(opt)
+                    Config.VimPassInput = normOpt(opt, "Mouse2")
+                end,
+            })
             T:CreateToggle({
-                Name = "Disparo duplo (tecla+remote)",
+                Name = "Fallback remoto legado",
                 CurrentValue = true,
                 Flag = "S_Dbl3",
                 Callback = function(v)
@@ -4312,7 +4451,7 @@ else
                 end,
             })
             T:CreateDropdown({
-                Name = "Tecla do chute (PC)",
+                Name = "Atalho do HUB: chutar (PC)",
                 Options = { "G", "H", "J", "K", "L", "T", "Y", "U", "V", "B", "N" },
                 CurrentOption = "G",
                 Flag = "S_SKey3",
